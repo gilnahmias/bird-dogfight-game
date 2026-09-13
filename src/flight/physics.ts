@@ -161,11 +161,11 @@ export function step(s: BirdState, input: Input, air: AirSample, dt: number): Bi
   // Sign convention: a positive roll rate drops the right wing, so pressing right
   // banks right and therefore turns right.
   //
-  // Hands off the roll axis, level the wings. Banked right means the right wing
-  // is below the horizon (right.y < 0), which needs a negative rate to undo.
-  if (input.roll === 0) {
-    rollRate += right.y * T.rollAutoLevel * authority
-  }
+  // Roll stability acts at all times, which turns the axis into a bank command:
+  // the input rolls, the stability levels, and the wings settle where the two
+  // balance. Releasing the key rolls back to level. Without this the bird cannot
+  // hold the circle a thermal has to be flown in.
+  rollRate += right.y * T.rollStability * authority
 
   // Passive pitch stability: the nose is pulled toward the trim angle of attack.
   // This is most of why the aircraft recovers on its own, and trimming at a

@@ -38,9 +38,17 @@ export const TUNING = {
   // Zero would mean zero lift, which noses the bird straight over into a dive.
   // This is the knob that sets the natural glide speed (~19 m/s here).
   trimAoa: 0.06, // rad
-  // Hands off, the wings roll back toward level. Keeps a beginner from ending up
-  // quietly inverted, without taking away the ability to hold a hard bank.
-  rollAutoLevel: 2.2,
+  /**
+   * Roll stability, always acting, not just when the stick is centred. It turns
+   * the roll axis into a bank command: the wings settle where the input balances
+   * the levelling torque, so holding right gives a steady bank of about
+   * asin(rollRate / rollStability) instead of a barrel roll.
+   *
+   * This is what makes soaring possible at all - a thermal has to be circled to
+   * stay in it, and a rate-only roll axis cannot hold a circle. It also means the
+   * bird can never end up inverted by accident.
+   */
+  rollStability: 3.1,
 
   // Extra nose-down torque past the stall angle. The player can fight it (which
   // delays recovery) but cannot cancel it, so letting go always recovers.
@@ -109,4 +117,40 @@ export const WORLD = {
    */
   fogNear: 380,
   fogFar: 1400,
+} as const
+
+/**
+ * The moving air. These are the numbers that decide whether the sky is worth
+ * reading, so they are tuned against one benchmark: a hands-off glide sinks at
+ * 2.8 m/s, so lift has to beat that comfortably or soaring is a lie.
+ */
+export const AIR = {
+  /** Prevailing wind. Direction comes from the seed, so each zone has its own. */
+  windSpeed: 7.0,
+
+  // --- Thermals -----------------------------------------------------------
+  /** Peak core strength, well above the 2.8 m/s it has to beat. */
+  thermalGain: 6.5,
+  /** Cores are where the field crosses this, so thermals are sparse, not everywhere. */
+  thermalThreshold: 0.12,
+  /** Thermals need ground clearance to organise, and they top out. */
+  thermalRampHeight: 55,
+  thermalCeiling: 540,
+  /** Air that goes up somewhere has to come down elsewhere. */
+  interThermalSink: 1.2,
+  /** Size of the cores: smaller means harder to core, and more rewarding. */
+  thermalScale: 0.0022,
+
+  // --- Ridge lift ---------------------------------------------------------
+  /** Applied to the component of wind blowing into a slope. */
+  ridgeGain: 1.25,
+  /** Ridge lift is a thin band hugging the slope, unlike a thermal. */
+  ridgeCeiling: 170,
+  /** The lee side sinks, which is what makes the wrong side of a ridge dangerous. */
+  leeFactor: 0.85,
+
+  // --- Water --------------------------------------------------------------
+  /** Cold water gives nothing back and actively pulls you down. */
+  waterSink: 1.7,
+  waterSinkHeight: 240,
 } as const

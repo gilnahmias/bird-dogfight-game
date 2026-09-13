@@ -14,7 +14,7 @@ import { input } from './input.ts'
 import { T } from '../game/constants.ts'
 import { biomeAt, heightAt } from '../world/terrain.ts'
 import { useGame } from '../game/store.ts'
-import { sampleAir } from '../world/air.ts'
+import { createAirSample, sampleAir } from '../world/air.ts'
 
 const FIXED_DT = 1 / 120
 const MAX_STEPS = 8
@@ -38,15 +38,20 @@ export function Bird({
   const telemetryClock = useRef(0)
   const wingPhase = useRef(0)
   const setTelemetry = useGame((s) => s.setTelemetry)
-  const air = useMemo(() => ({ wind: new Vector3() }), [])
+  const air = useMemo(() => createAirSample(), [])
 
   // Lock the wings out of the render loop's way on mount.
   useEffect(() => {
     wingPhase.current = 0
   }, [state])
 
-  useFrame((_, delta) => {
+  useFrame((frame, delta) => {
     accumulator.current += Math.min(delta, MAX_STEPS * FIXED_DT)
+
+    // Sampled once per frame, not once per substep. The air field changes over
+    // tens of metres and the bird covers about one metre per substep, so this is
+    // free accuracy given up for a real saving in noise lookups.
+    if (!state.dead) sampleAir(state.pos, seed, air, frame.clock.elapsedTime)
 
     let steps = 0
     while (accumulator.current >= FIXED_DT && steps < MAX_STEPS) {
@@ -54,7 +59,6 @@ export function Bird({
       steps++
 
       if (state.dead) break
-      sampleAir(state.pos, seed, air)
       step(state, input, air, FIXED_DT)
 
       const ground = heightAt(state.pos.x, state.pos.z, seed)
@@ -113,6 +117,7 @@ export function Bird({
         stamina: state.stamina,
         stallWarn: state.stallWarn,
         stalled: state.stalled,
+        lift: air.lift,
         load: state.load,
         dead: state.dead,
       })

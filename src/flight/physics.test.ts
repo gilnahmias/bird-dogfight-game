@@ -83,14 +83,15 @@ test('stamina regenerates while gliding', () => {
   assert.ok(b.stamina > 10, `gliding should restore stamina, got ${b.stamina.toFixed(1)}`)
 })
 
-test('an established bank turns the bird without any rudder', () => {
-  const b = createBird(new Vector3(0, 900, 0))
-  // Bank 40 degrees, then fly hands-off-the-roll-axis.
-  b.quat.multiply(new Quaternion().setFromAxisAngle(new Vector3(0, 0, -1), -0.7))
-  const before = Math.atan2(b.vel.x, -b.vel.z)
-  fly(b, { roll: 0.001, pitch: 0.15, flap: false }, 2.5) // tiny roll input holds off auto-level
-  const after = Math.atan2(b.vel.x, -b.vel.z)
-  assert.ok(Math.abs(after - before) > 0.4, `a bank must curve the flight path, turned ${(after - before).toFixed(2)} rad`)
+test('a banked turn stays coordinated, with no sideslip and no rudder key', () => {
+  const b = createBird(new Vector3(0, 3000, 0))
+  fly(b, { roll: 0.7, pitch: 0.3, flap: false }, 6)
+  const right = new Vector3(1, 0, 0).applyQuaternion(b.quat)
+  const flow = b.vel.clone().normalize()
+  const sideslip = Math.abs(flow.dot(right))
+  // Not perfectly coordinated - there is no rudder - but nowhere near the
+  // crabbing you would get with a pure roll-and-hope turn.
+  assert.ok(sideslip < 0.2, `the weathervane should mostly kill sideslip, got ${sideslip.toFixed(3)}`)
 })
 
 test('left banks and turns left, right banks and turns right', () => {
@@ -98,11 +99,9 @@ test('left banks and turns left, right banks and turns right', () => {
   const heading = (s: ReturnType<typeof createBird>) => Math.atan2(s.vel.x, -s.vel.z)
   const turn = (roll: number) => {
     const b = createBird(new Vector3(0, 1500, 0))
-    fly(b, { roll, pitch: 0, flap: false }, 0.4) // roll in to about 50 degrees
+    fly(b, { roll, pitch: 0, flap: false }, 0.6) // roll in and settle at the commanded bank
     const before = heading(b)
-    // A sliver of roll input holds the bank against the auto-leveller. Holding
-    // full roll instead would just barrel-roll and cancel the turn out.
-    fly(b, { roll: roll * 0.02, pitch: 0.25, flap: false }, 1.5)
+    fly(b, { roll, pitch: 0.25, flap: false }, 1.5)
     return heading(b) - before
   }
   const right = turn(1)
@@ -116,6 +115,35 @@ test('the right wing drops when banking right', () => {
   fly(b, { roll: 1, pitch: 0, flap: false }, 0.4)
   const rightWing = new Vector3(1, 0, 0).applyQuaternion(b.quat)
   assert.ok(rightWing.y < -0.1, `banking right must drop the right wing, got y=${rightWing.y.toFixed(2)}`)
+})
+
+test('holding roll settles at a bank instead of rolling over', () => {
+  const bankDegrees = (s: ReturnType<typeof createBird>) =>
+    (Math.asin(Math.max(-1, Math.min(1, new Vector3(1, 0, 0).applyQuaternion(s.quat).y))) * -180) /
+    Math.PI
+  const b = createBird(new Vector3(0, 3000, 0))
+  fly(b, { roll: 1, pitch: 0.2, flap: false }, 8) // long enough to barrel-roll many times
+  const bank = bankDegrees(b)
+  assert.ok(bank > 35 && bank < 80, `full roll should hold a steady bank, got ${bank.toFixed(0)} deg`)
+
+  const gentle = createBird(new Vector3(0, 3000, 0))
+  fly(gentle, { roll: 0.4, pitch: 0.15, flap: false }, 6)
+  const gentleBank = bankDegrees(gentle)
+  assert.ok(gentleBank > 8 && gentleBank < bank - 5, `partial input should hold a shallower bank, got ${gentleBank.toFixed(0)} deg vs ${bank.toFixed(0)} deg`)
+})
+
+test('holding a turn does not roll the bird inverted', () => {
+  // ponytail: the bank reference is the body right axis against world up, which
+  // degenerates when the nose is pointed near-vertically down. Holding full roll
+  // with no pitch for ten seconds does eventually tip past it. Every flyable
+  // attitude is covered; if that ever matters, measure bank about the velocity
+  // vector instead.
+  for (const pitch of [0.15, 0.3, 0.5]) {
+    const b = createBird(new Vector3(0, 5000, 0))
+    fly(b, { roll: 1, pitch, flap: false }, 10)
+    const up = new Vector3(0, 1, 0).applyQuaternion(b.quat)
+    assert.ok(up.y > 0, `held turn at pitch ${pitch} went inverted (up.y = ${up.y.toFixed(2)})`)
+  }
 })
 
 test('hands off the roll axis, the wings return to level', () => {

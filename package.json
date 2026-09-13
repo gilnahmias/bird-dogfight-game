@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test": "node --test --experimental-strip-types 'src/**/*.test.ts'",
     "envelope": "node --experimental-strip-types src/dev/envelope.ts",
-    "check": "tsc -b && oxlint src && npm test"
+    "check": "tsc -b && oxlint src && npm test",
+    "air": "node --experimental-strip-types src/dev/airfield.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.8",

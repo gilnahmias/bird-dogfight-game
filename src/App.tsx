@@ -13,6 +13,7 @@ import { HUD } from './ui/HUD.tsx'
 import { DevBridge } from './dev/DevBridge.tsx'
 import { findNestSite, launchPoint } from './world/nest.ts'
 import { Nest } from './world/Nest.tsx'
+import { Motes } from './world/Motes.tsx'
 import { T, WORLD } from './game/constants.ts'
 
 const SEED = 'pine-ridge'
@@ -63,6 +64,7 @@ export default function App() {
         <Water target={target} />
         <Scatter target={target} seed={SEED} />
         <Nest site={site} />
+        <Motes target={target} seed={SEED} />
 
         <Bird state={bird} seed={SEED} spawn={spawn} heading={site.heading} />
         <ChaseCamera state={bird} />

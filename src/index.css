@@ -71,6 +71,11 @@ canvas {
   opacity: 0.6;
 }
 
+.vario-arrow {
+  font-size: 15px;
+  margin-right: 2px;
+}
+
 .hud-right {
   position: absolute;
   right: 22px;

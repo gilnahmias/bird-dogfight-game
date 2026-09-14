@@ -14,6 +14,9 @@ import { DevBridge } from './dev/DevBridge.tsx'
 import { findNestSite, launchPoint } from './world/nest.ts'
 import { Nest } from './world/Nest.tsx'
 import { Motes } from './world/Motes.tsx'
+import { Shadow } from './world/Shadow.tsx'
+import { findWaterfalls } from './world/waterfalls.ts'
+import { Waterfalls } from './world/Waterfalls.tsx'
 import { T, WORLD } from './game/constants.ts'
 
 const SEED = 'pine-ridge'
@@ -44,6 +47,7 @@ export default function App() {
   // Every run starts at the nest, launching down its open departure line.
   const site = useMemo(() => findNestSite(SEED), [])
   const spawn = useMemo(() => launchPoint(site), [site])
+  const falls = useMemo(() => findWaterfalls(SEED, site.pos), [site])
   const bird = useMemo(() => createBird(spawn, site.heading), [spawn, site.heading])
   // A stable handle on the bird's position, for the world to build itself around.
   const target = useMemo(() => ({ current: bird.pos as Vector3 }), [bird])
@@ -64,8 +68,10 @@ export default function App() {
         <Water target={target} />
         <Scatter target={target} seed={SEED} />
         <Nest site={site} />
+        <Waterfalls falls={falls} />
         <Motes target={target} seed={SEED} />
 
+        <Shadow state={bird} seed={SEED} />
         <Bird state={bird} seed={SEED} spawn={spawn} heading={site.heading} />
         <ChaseCamera state={bird} />
         <DevBridge bird={bird} />

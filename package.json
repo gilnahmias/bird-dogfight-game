@@ -11,9 +11,12 @@
     "test": "node --test --experimental-strip-types 'src/**/*.test.ts'",
     "envelope": "node --experimental-strip-types src/dev/envelope.ts",
     "check": "tsc -b && oxlint src && npm test",
-    "air": "node --experimental-strip-types src/dev/airfield.ts"
+    "air": "node --experimental-strip-types src/dev/airfield.ts",
+    "falls": "node --experimental-strip-types src/dev/falls.ts",
+    "nest": "node --experimental-strip-types src/dev/nestfloat.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.125.0",
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.7.0",
     "react": "19.2.0",

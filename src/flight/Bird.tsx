@@ -15,7 +15,7 @@ import { T } from '../game/constants.ts'
 import { biomeAt, heightAt } from '../world/terrain.ts'
 import { useGame } from '../game/store.ts'
 import { createAirSample, sampleAir } from '../world/air.ts'
-import { applyWingPose, wingPose } from './wingPose.ts'
+import { applyWingPose, createRhythm, stepRhythm, wingPose } from './wingPose.ts'
 import {
   alula,
   armShape,
@@ -33,16 +33,22 @@ const FIXED_DT = 1 / 120
 const MAX_STEPS = 8
 const TELEMETRY_INTERVAL = 0.1
 
+/** How close to the middle of the nest counts as standing in it. */
+const NEST_PERCH_RADIUS = 4.5
+
 export function Bird({
   state,
   seed,
   spawn,
   heading,
+  nest,
 }: {
   state: BirdState
   seed: string
   spawn: Vector3
   heading: number
+  /** The nest, up in the crown of its tree - a perch the terrain knows nothing about. */
+  nest: Vector3
 }) {
   const root = useRef<Group>(null)
   const left: WingJoints = {
@@ -59,6 +65,7 @@ export function Bird({
   const accumulator = useRef(0)
   const telemetryClock = useRef(0)
   const wingPhase = useRef(0)
+  const rhythm = useRef(createRhythm())
   const setTelemetry = useGame((s) => s.setTelemetry)
   const air = useMemo(() => createAirSample(), [])
 
@@ -83,14 +90,27 @@ export function Bird({
       if (state.dead) break
       step(state, input, air, FIXED_DT)
 
-      const ground = heightAt(state.pos.x, state.pos.z, seed)
+      const terrain = heightAt(state.pos.x, state.pos.z, seed)
       const wet = biomeAt(state.pos.x, state.pos.z, seed) === 'water'
-      resolveGround(state, wet ? Math.max(ground, 0) : ground, wet, FIXED_DT)
+
+      /*
+        The nest is a surface too.
+
+        It sits in the crown of a tree, twenty-six metres above ground that the
+        contact code otherwise knows everything about - so without this the bird
+        standing in its own nest is, as far as the physics is concerned, in open
+        air, and the run begins by falling out of it.
+      */
+      const overNest =
+        Math.hypot(state.pos.x - nest.x, state.pos.z - nest.z) < NEST_PERCH_RADIUS &&
+        state.pos.y > nest.y - 3
+      const floor = overNest ? Math.max(terrain, nest.y) : terrain
+      resolveGround(state, wet && !overNest ? Math.max(terrain, 0) : floor, wet && !overNest, FIXED_DT)
     }
 
     // Restart after a crash.
     if (state.dead && input.restart) {
-      const fresh = createBird(spawn, heading)
+      const fresh = createBird(spawn, heading, true)
       Object.assign(state, {
         ...fresh,
         pos: state.pos.copy(fresh.pos),
@@ -108,11 +128,24 @@ export function Bird({
 
     // Wings. The stroke travels out from the shoulder rather than the whole wing
     // swinging as one piece, which is the difference between a wing and a plank.
-    // The wings never stop. A bird under power is always working, and a frozen
-    // glider pose was the single thing that most made this read as a model plane.
-    wingPhase.current += delta / T.flapInterval
+    // Beats in bursts, and holds them out between. Continuous flapping reads as
+    // a wind-up toy and hides the thing worth seeing, which is the air doing the
+    // work; a permanently frozen glider pose reads as a model plane. The rhythm
+    // is what sits between the two.
+    stepRhythm(
+      rhythm.current,
+      {
+        airspeed: state.airspeed,
+        climbRate: state.climbRate,
+        cruiseSpeed: T.cruiseSpeed,
+        perched: state.perched,
+      },
+      delta,
+    )
+    if (rhythm.current.beating) wingPhase.current += delta / T.flapInterval
+    else wingPhase.current += delta * 0.09 // the barest drift, so a glide is not a freeze
 
-    const pose = wingPose(wingPhase.current, true, state.airspeed)
+    const pose = wingPose(wingPhase.current, rhythm.current.beating, state.airspeed)
 
     // Feet: tucked up in flight, thrown forward and open on the brake.
     for (const foot of [feet.left.current, feet.right.current]) {

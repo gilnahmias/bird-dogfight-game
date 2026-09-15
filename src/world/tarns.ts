@@ -27,8 +27,8 @@ export type Tarn = {
   outflow: Vector3
 }
 
-const SEARCH_RADIUS = 2600
-const STEP = 70
+const SEARCH_RADIUS = 3400
+const STEP = 64
 /** Tarns belong in the hills, not on the coastal flats. */
 const MIN_HEIGHT = 42
 const MAX_HEIGHT = 245

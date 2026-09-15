@@ -10,7 +10,7 @@ import { Water } from './world/Water.tsx'
 import { Scatter } from './world/Scatter.tsx'
 import { HUD } from './ui/HUD.tsx'
 import { DevBridge } from './dev/DevBridge.tsx'
-import { departureDirection, findNestSite, launchPoint } from './world/nest.ts'
+import { departureDirection, findNestSite, launchPoint, nestPoint } from './world/nest.ts'
 import { Nest } from './world/Nest.tsx'
 import { Motes } from './world/Motes.tsx'
 import { Clouds, Sun, type CloudPatch } from './world/Clouds.tsx'
@@ -42,7 +42,9 @@ export default function App() {
   const [patches, setPatches] = useState<CloudPatch[]>([])
   const cloudDrift = useRef(new Vector3())
   const onPatches = useCallback((next: CloudPatch[]) => setPatches(next), [])
-  const bird = useMemo(() => createBird(spawn, site.heading), [spawn, site.heading])
+  // The run opens standing in the nest. Space is the launch.
+  const bird = useMemo(() => createBird(spawn, site.heading, true), [spawn, site.heading])
+  const nest = useMemo(() => nestPoint(site), [site])
   // A stable handle on the bird's position, for the world to build itself around.
   const target = useMemo(() => ({ current: bird.pos as Vector3 }), [bird])
 
@@ -83,13 +85,13 @@ export default function App() {
         <Clouds target={target} seed={SEED} onPatches={onPatches} driftOut={cloudDrift} />
         <CloudShadows patches={patches} seed={SEED} drift={cloudDrift} />
 
-        <PreyField bird={bird} seed={SEED} nest={site.pos} />
+        <PreyField bird={bird} seed={SEED} nest={nest} />
         <Shadow state={bird} seed={SEED} />
-        <Bird state={bird} seed={SEED} spawn={spawn} heading={site.heading} />
+        <Bird state={bird} seed={SEED} spawn={spawn} heading={site.heading} nest={nest} />
         <ChaseCamera state={bird} />
         <DevBridge bird={bird} />
       </Canvas>
-      <HUD />
+      <HUD nest={nest} bird={bird} />
     </>
   )
 }

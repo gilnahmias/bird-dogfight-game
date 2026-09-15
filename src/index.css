@@ -140,6 +140,40 @@ canvas {
   transition: width 120ms linear, background 200ms linear;
 }
 
+.nest-pointer {
+  position: absolute;
+  top: 12%;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  color: #d8e4ee;
+  opacity: 0.85;
+}
+
+.nest-pointer.on-course {
+  color: #e0b545;
+  opacity: 1;
+}
+
+.nest-arrow {
+  font-size: 34px;
+  line-height: 1;
+  transition: transform 90ms linear;
+}
+
+.nest-distance {
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.nest-label {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
 .perched {
   position: absolute;
   top: 16%;

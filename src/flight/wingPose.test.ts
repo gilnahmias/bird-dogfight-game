@@ -168,3 +168,61 @@ test('both wings sweep the same way when the bird tucks into a dive', () => {
   assert.ok(l.z > 0.2, `left wingtip should sweep back, z=${l.z.toFixed(2)}`)
   assert.ok(Math.abs(l.z - r.z) < 1e-6, `wings sweep differently: ${l.z.toFixed(2)} vs ${r.z.toFixed(2)}`)
 })
+
+// --- Rhythm ----------------------------------------------------------------
+
+import { createRhythm, stepRhythm, type RhythmInput } from './wingPose.ts'
+
+const CRUISE = 26
+const cruising: RhythmInput = { airspeed: CRUISE, climbRate: 0, cruiseSpeed: CRUISE, perched: false }
+
+function run(input: RhythmInput, seconds: number) {
+  const rhythm = createRhythm()
+  const dt = 1 / 60
+  let beatingFrames = 0
+  let switches = 0
+  let previous = rhythm.beating
+  for (let i = 0; i < seconds / dt; i++) {
+    stepRhythm(rhythm, input, dt)
+    if (rhythm.beating) beatingFrames++
+    if (rhythm.beating !== previous) switches++
+    previous = rhythm.beating
+  }
+  return { beatingShare: beatingFrames / (seconds / dt), switches }
+}
+
+test('a bird at cruise beats in bursts and glides between them', () => {
+  const { beatingShare, switches } = run(cruising, 40)
+  assert.ok(switches > 4, `the wings never settled into a rhythm (${switches} changes in 40s)`)
+  assert.ok(
+    beatingShare > 0.2 && beatingShare < 0.8,
+    `beating ${(beatingShare * 100).toFixed(0)}% of the time is not a rhythm, it is a setting`,
+  )
+})
+
+test('a bird that is sinking keeps working', () => {
+  const { beatingShare } = run({ ...cruising, climbRate: -6 }, 20)
+  assert.ok(beatingShare > 0.95, `only beating ${(beatingShare * 100).toFixed(0)}% of the time while dropping`)
+})
+
+test('a slow bird keeps working', () => {
+  const { beatingShare } = run({ ...cruising, airspeed: CRUISE * 0.5 }, 20)
+  assert.ok(beatingShare > 0.95, 'a slow bird must not coast')
+})
+
+test('a bird in lift is allowed to hold its wings out', () => {
+  const { beatingShare } = run({ ...cruising, climbRate: 2.5 }, 40)
+  assert.ok(beatingShare < 0.6, `still beating ${(beatingShare * 100).toFixed(0)}% of the time in lift`)
+})
+
+test('a perched bird holds its wings ready, not folded mid-glide', () => {
+  const rhythm = createRhythm()
+  stepRhythm(rhythm, { ...cruising, perched: true, airspeed: 0 }, 1 / 60)
+  assert.ok(rhythm.beating)
+})
+
+test('the rhythm does not flicker frame to frame', () => {
+  const { switches } = run(cruising, 40)
+  // Roughly one change every few seconds, not several a second.
+  assert.ok(switches < 30, `${switches} changes in 40 seconds is a flicker, not a wingbeat`)
+})

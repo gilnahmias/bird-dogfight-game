@@ -58,19 +58,21 @@ export const FWD = new Vector3(0, 0, -1)
 export const UP = new Vector3(0, 1, 0)
 export const RIGHT = new Vector3(1, 0, 0)
 
-export function createBird(pos: Vector3, heading = 0): BirdState {
+export function createBird(pos: Vector3, heading = 0, perched = false): BirdState {
   const quat = new Quaternion().setFromAxisAngle(UP, heading)
   return {
     pos: pos.clone(),
-    vel: FWD.clone().applyQuaternion(quat).multiplyScalar(T.cruiseSpeed),
+    vel: perched
+      ? new Vector3()
+      : FWD.clone().applyQuaternion(quat).multiplyScalar(T.cruiseSpeed),
     quat,
     load: 0,
     talons: 0,
-    airspeed: T.cruiseSpeed,
+    airspeed: perched ? 0 : T.cruiseSpeed,
     aoa: 0,
     flapPhase: 0,
     climbRate: 0,
-    perched: false,
+    perched,
     launchTimer: 0,
     dead: false,
   }
@@ -107,7 +109,8 @@ export function step(s: BirdState, input: Input, air: AirSample, dt: number): Bi
 
   // The talons take a moment to swing forward and to tuck away again, so the
   // gesture reads on screen instead of snapping.
-  const talonTarget = input.brake ? 1 : 0
+  // Perched or mid-leap the feet stay down where they belong.
+  const talonTarget = input.brake && !s.perched && s.launchTimer <= 0 ? 1 : 0
   const talonRate = talonTarget > s.talons ? T.talonOutRate : T.talonInRate
   s.talons += Math.sign(talonTarget - s.talons) * Math.min(Math.abs(talonTarget - s.talons), talonRate * dt)
 
@@ -156,22 +159,31 @@ export function step(s: BirdState, input: Input, air: AirSample, dt: number): Bi
   s.flapPhase += dt / T.flapInterval
   const braking = s.talons > 0.01
   const deficit = T.cruiseSpeed - airspeed
-  const governed = Math.max(0, Math.min(1, deficit / T.cruiseSpeed + 0.12))
+  // Proportional, with a standing bias that roughly cancels cruise drag. Scaling
+  // the deficit against the full cruise speed made the governor far too soft:
+  // the bird settled five metres a second short of the speed it was aiming for.
+  const governed = Math.max(0, Math.min(1, deficit / (T.cruiseSpeed * T.thrustGain) + T.thrustBias))
   // Standing on the ground the bird LEAPS rather than taxis, so the launch shove
   // goes up and forward rather than straight ahead. Pushed along the nose alone
   // it was worth less than the bird's own weight unless the player happened to
   // be pitched steeply up, and a landed bird could not reliably get airborne.
-  if (s.perched && !braking && s.launchTimer <= 0) s.launchTimer = T.launchDuration
-  if (braking) s.launchTimer = 0
+  // On the ground, the brake key is the launch key. It is the same gesture - the
+  // feet drive against the ground instead of against the air - and it means a
+  // perched bird waits for the player rather than leaping the instant it lands.
+  if (s.perched && input.brake && s.launchTimer <= 0) s.launchTimer = T.launchDuration
   s.launchTimer = Math.max(0, s.launchTimer - dt)
+  // Mid-leap the brake is ignored, or holding the key would stop the takeoff it
+  // just started.
+  const launching = s.launchTimer > 0
 
-  if (!braking) {
-    if (s.launchTimer > 0) {
-      tmp.copy(up).multiplyScalar(0.78).addScaledVector(fwd, 0.63).normalize()
-      force.addScaledVector(tmp, T.launchThrust)
-    } else {
-      force.addScaledVector(fwd, governed * T.maxThrust)
-    }
+  if (launching) {
+    tmp.copy(up).multiplyScalar(0.78).addScaledVector(fwd, 0.63).normalize()
+    force.addScaledVector(tmp, T.launchThrust)
+  } else if (!braking && !s.perched) {
+    // A perched bird makes no thrust at all. Left on, cruise thrust simply drove
+    // it off its own perch a second after the game started - it never got to be
+    // standing anywhere.
+    force.addScaledVector(fwd, governed * T.maxThrust)
   }
 
   // Flaring: braking hard, the bird beats against its own descent and settles
@@ -283,13 +295,20 @@ export function resolveGround(
   const groundSpeed = Math.hypot(s.vel.x, s.vel.z)
   if (groundSpeed < T.landingSpeed && impact < T.landingSink) {
     s.perched = true
-    // Rest on the ground without being pinned to it. Zeroing the velocity every
-    // frame - which is what this did first - meant thrust could never build and
-    // the bird could land but never leave.
     if (s.vel.y < 0) s.vel.y = 0
-    const keep = Math.pow(T.groundFriction, dt)
-    s.vel.x *= keep
-    s.vel.z *= keep
+    if (s.launchTimer > 0) {
+      // Mid-leap: let the push build. Damping here meant the bird could land but
+      // never leave.
+      const keep = Math.pow(T.groundFriction, dt)
+      s.vel.x *= keep
+      s.vel.z *= keep
+    } else {
+      // Standing: a bird gripping a branch does not slide. Light damping was not
+      // enough against a seven metre a second wind, which pushed the bird out of
+      // its own nest within a couple of seconds of the game starting.
+      s.vel.x = 0
+      s.vel.z = 0
+    }
     return 'land'
   }
 

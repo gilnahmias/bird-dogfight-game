@@ -98,3 +98,66 @@ export function applyWingPose(wing: WingJointSet, pose: WingPose): void {
   // back up. Small, but it is what stops the tip looking like a paddle.
   wing.wrist.rotation.x = pose.twist
 }
+
+// --- Rhythm ----------------------------------------------------------------
+
+/**
+ * When the wings beat and when they are held out.
+ *
+ * A raptor does not flap continuously - it beats in short bursts and then holds
+ * the wings out, and the bursts come when it needs power: climbing, slow, or
+ * sinking. Constant beating reads as a wind-up toy, and it hides the thing the
+ * player most wants to see, which is that the air is doing the work.
+ *
+ * Purely cosmetic. Thrust is governed elsewhere and does not care whether the
+ * wings happen to be down at that instant.
+ */
+export type Rhythm = {
+  beating: boolean
+  /** Seconds left in the current burst or glide. */
+  timer: number
+}
+
+export function createRhythm(): Rhythm {
+  return { beating: true, timer: 0 }
+}
+
+export type RhythmInput = {
+  airspeed: number
+  climbRate: number
+  cruiseSpeed: number
+  perched: boolean
+}
+
+/** Length of a burst of beats, and of the glide between bursts. */
+const BURST_SECONDS = 2.4
+const GLIDE_SECONDS = 2.8
+
+export function stepRhythm(rhythm: Rhythm, input: RhythmInput, dt: number): Rhythm {
+  rhythm.timer -= dt
+
+  // Power is needed: slow, sinking, or standing about to leap. These override
+  // the cycle, because a bird that is dropping does not coast.
+  const needsPower =
+    input.perched || input.airspeed < input.cruiseSpeed * 0.72 || input.climbRate < -3.5
+
+  // Rising air or plenty of speed: hold them out and enjoy it.
+  const canCoast = !needsPower && (input.climbRate > -0.6 || input.airspeed > input.cruiseSpeed)
+
+  if (needsPower) {
+    rhythm.beating = true
+    rhythm.timer = Math.max(rhythm.timer, 0.4)
+    return rhythm
+  }
+
+  if (rhythm.timer > 0) return rhythm
+
+  if (rhythm.beating && canCoast) {
+    rhythm.beating = false
+    rhythm.timer = GLIDE_SECONDS
+  } else {
+    rhythm.beating = true
+    rhythm.timer = BURST_SECONDS
+  }
+  return rhythm
+}

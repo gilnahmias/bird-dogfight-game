@@ -19,6 +19,13 @@ export type NestSite = {
   /** How far the ground falls away over the lip, and which way the lip faces. */
   edgeDrop: number
   edgeAngle: number
+  /** Height of the tree the nest is built in. The nest sits in its crown. */
+  treeHeight: number
+}
+
+/** Where the nest itself is: up in the crown, not on the ground. */
+export function nestPoint(site: NestSite, out = new Vector3()): Vector3 {
+  return out.set(site.pos.x, site.pos.y + site.treeHeight, site.pos.z)
 }
 
 const SEARCH_RADIUS = 2200
@@ -28,8 +35,13 @@ const PROMINENCE_RADIUS = 240
 const EDGE_RADIUS = 34
 /** How far along the departure line the air has to stay open. */
 const DEPARTURE_SAMPLES = [120, 250, 400, 600, 800, 1000]
-/** How high above the nest the bird launches. */
-export const LAUNCH_HEIGHT = 26
+/**
+ * Height of the tree the nest is built in.
+ *
+ * Tall enough to be a landmark from the air and to clear the trees around it,
+ * short enough that the nest is not simply floating with a trunk drawn under it.
+ */
+export const NEST_TREE_HEIGHT = 26
 
 /**
  * The lip: how far the ground falls away close by, and in which direction.
@@ -92,9 +104,11 @@ export function findNestSite(seed: string): NestSite {
       if (slopeAt(x, z, seed) > 0.42) continue
       const prom = prominence(x, z, h, seed)
       if (prom < 18) continue
-      // Must be perched on a lip, not sat on a dome.
+      // A tree has to be able to stand here, so nothing too steep.
+      if (slopeAt(x, z, seed) > 0.26) continue
+      // Still wants a view: ground that falls away in front of it.
       const edge = cragEdge(x, z, h, seed)
-      if (edge.drop < 9) continue
+      if (edge.drop < 5) continue
       // The drawn mesh has to agree with the height field here, or the nest sits
       // on ground the player cannot see and the bird crashes into air near home.
       if (Math.abs(meshGapAt(x, z, seed)) > 4) continue
@@ -108,13 +122,13 @@ export function findNestSite(seed: string): NestSite {
   // Pass two: only the best crags pay for the departure-line test.
   let best: NestSite | null = null
   for (const c of candidates.slice(0, 40)) {
-    const launchY = c.h + LAUNCH_HEIGHT
+    const launchY = c.h + NEST_TREE_HEIGHT
     for (let i = 0; i < 16; i++) {
       const heading = (i / 16) * Math.PI * 2
       const clearance = departureClearance(c.x, c.z, launchY, heading, seed)
       if (!best || clearance > best.clearance) {
         best = {
-          // Sit on the drawn surface, a touch into it, so the nest never floats.
+          // The FOOT of the tree, sat on the drawn surface so nothing floats.
           pos: new Vector3(
             c.x,
             Math.min(c.h, meshHeightAt(c.x, c.z, seed, WORLD.lodSegments[0])) - 0.4,
@@ -124,6 +138,7 @@ export function findNestSite(seed: string): NestSite {
           clearance,
           edgeDrop: c.edgeDrop,
           edgeAngle: c.edgeAngle,
+          treeHeight: NEST_TREE_HEIGHT,
         }
       }
     }
@@ -143,6 +158,7 @@ export function findNestSite(seed: string): NestSite {
     clearance: 0,
     edgeDrop: edge.drop,
     edgeAngle: edge.angle,
+    treeHeight: NEST_TREE_HEIGHT,
   }
 }
 
@@ -158,7 +174,12 @@ export function departureDirection(heading: number): Vector3 {
   )
 }
 
-/** Where the bird is at the start of a run: airborne, just off the nest. */
+/**
+ * Where the bird starts a run: standing in the nest, up in the crown.
+ *
+ * It begins perched rather than already flying, so the first thing the player
+ * does is decide to go.
+ */
 export function launchPoint(site: NestSite): Vector3 {
-  return new Vector3(site.pos.x, site.pos.y + LAUNCH_HEIGHT, site.pos.z)
+  return nestPoint(site).setY(site.pos.y + site.treeHeight + 1.2)
 }

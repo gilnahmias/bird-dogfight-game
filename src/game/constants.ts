@@ -31,9 +31,21 @@ export const TUNING = {
    * The speed the bird holds under its own power. It beats its wings constantly,
    * so it accelerates toward this and coasts past it in a dive.
    */
-  cruiseSpeed: 21,
-  /** Cap on the thrust the governor may call for. */
-  maxThrust: 26,
+  cruiseSpeed: 26,
+  /**
+   * Cap on the thrust the governor may call for.
+   *
+   * Deliberately close to the drag at cruise, leaving only a few newtons spare.
+   * A speed governor with power to burn turns the bird into a helicopter: with
+   * 34N it climbed 740m in a minute on thrust alone, which made thermals
+   * pointless and quietly undid the whole point of reading the air. The spare
+   * power here is worth about 4 m/s of climb - real, but nothing like a thermal.
+   */
+  maxThrust: 15,
+  /** Fraction of cruise speed over which the governor goes from idle to full. */
+  thrustGain: 0.35,
+  /** Standing thrust at cruise, as a fraction of maximum - roughly cruise drag. */
+  thrustBias: 0.59,
   /**
    * Thrust available while standing on the ground.
    *
@@ -63,10 +75,16 @@ export const TUNING = {
   // nose out of a sideslip, which is what turns a bank into a coordinated turn.
   pitchStability: 2.6,
   weathervane: 2.6,
-  // Hands off, the wing settles at this angle of attack rather than at zero.
-  // Zero would mean zero lift, which noses the bird straight over into a dive.
-  // This is the knob that sets the natural glide speed (~19 m/s here).
-  trimAoa: 0.06, // rad
+  /**
+   * Hands off, the wing settles at this angle of attack rather than at zero.
+   * Zero would mean zero lift, which noses the bird straight over into a dive.
+   *
+   * It has to match the cruising speed: this is the angle at which lift equals
+   * weight, so it decides the speed the bird flies level at. Raising cruise
+   * without lowering this made the wing produce too much lift at the new speed
+   * and the bird climbed away at 14 m/s with no input at all.
+   */
+  trimAoa: 0.031, // rad - level flight at about 26 m/s
   /**
    * Roll stability, always acting, not just when the stick is centred. It turns
    * the roll axis into a bank command: the wings settle where the input balances
@@ -81,8 +99,13 @@ export const TUNING = {
 
 
   // --- Wingbeat -----------------------------------------------------------
-  /** Seconds per beat. Purely how fast the wings look like they are working. */
-  flapInterval: 0.4,
+  /**
+   * Seconds per beat. Purely how fast the wings look like they are working.
+   *
+   * A big raptor beats slowly - around one a second, not two and a half. The
+   * faster figure this started with read as a sparrow having a panic.
+   */
+  flapInterval: 0.78,
 
   // --- Brake and talons ---------------------------------------------------
   /**

@@ -32,11 +32,13 @@ export type Waterfall = {
 }
 
 /** Step size when walking the fall line out from the lip. */
-const STEP_OUT = 8
+const STEP_OUT = 5
 /** Most steps the fall line is followed for. */
-const MAX_STEPS = 28
+const MAX_STEPS = 46
+/** How far out from the outlet to look for the brink the water goes over. */
+const BRINK_SEARCH = 70
 /** A spill shorter than this is a trickle, not a waterfall. */
-export const MIN_DROP = 11
+export const MIN_DROP = 9
 
 /**
  * The line the water takes down the face: hugging the rock, never climbing, and
@@ -138,21 +140,59 @@ function viewingCost(w: Waterfall, from: Vector3, heading: Vector3 | null): numb
  * Build the fall that spills out of a tarn, or null if the ground below its
  * outlet does not drop far enough to make one.
  */
+/** Height of the drawn surface, never below the waterline. */
+function ground(x: number, z: number, seed: string): number {
+  return Math.max(meshHeightAt(x, z, seed, WORLD.lodSegments[0]), WORLD.waterLevel)
+}
+
 function fallFromTarn(tarn: Tarn, seed: string): Waterfall | null {
   // The crest of the rim, not the pool surface: water goes OVER the lip, and a
   // sheet starting at the surface begins buried under the rim in front of it.
   const lip = tarn.outletGround
 
-  const traced = traceFallLine(
-    tarn.outlet.x,
-    tarn.outlet.z,
-    lip,
-    Math.atan2(tarn.outflow.z, tarn.outflow.x),
-    seed,
-  )
+  const heading = Math.atan2(tarn.outflow.z, tarn.outflow.x)
+
+  /*
+    Start where the ground actually gives way, not at the pool edge.
+
+    Water leaves a tarn over a lip that is nearly level for a few metres before
+    it drops, and a march that insists on descending every step died on that flat
+    stretch - every tarn in the world was rejected. Walking out to the brink
+    first is also where a real fall visibly begins.
+  */
+  /*
+    Find the brink: the point where the water genuinely starts to fall.
+
+    It is NOT the pool's edge. Measured on every tarn in the world, the ground
+    rises for the first ten to twenty metres past the outlet - the outflow runs
+    over the rim, which is a hump - before dropping away. Starting the sheet at
+    the outlet buries it in that hump, and giving up the moment the ground climbs
+    rejects every tarn there is. So walk out across the hump and begin where the
+    ground is back below the rim and still going down.
+  */
+  const rim = tarn.outletGround
+  let startX = tarn.outlet.x
+  let startZ = tarn.outlet.z
+  let startY = rim
+  let foundBrink = false
+  for (let d = 0; d <= BRINK_SEARCH && !foundBrink; d += STEP_OUT) {
+    const x = tarn.outlet.x + tarn.outflow.x * d
+    const z = tarn.outlet.z + tarn.outflow.z * d
+    const here = ground(x, z, seed)
+    if (here > rim + 0.2) continue // still climbing the rim
+    const ahead = ground(x + tarn.outflow.x * STEP_OUT, z + tarn.outflow.z * STEP_OUT, seed)
+    if (ahead >= here - 0.4) continue // not falling away yet
+    startX = x
+    startZ = z
+    startY = here
+    foundBrink = true
+  }
+  if (!foundBrink) return null
+
+  const traced = traceFallLine(startX, startZ, startY, heading, seed)
   if (!traced) return null
 
-  const drop = lip - traced.base.y
+  const drop = startY - traced.base.y
   if (drop < MIN_DROP) return null
 
   return {

@@ -6,10 +6,14 @@
  * bird stalls silently otherwise, and a death the player could not see coming is
  * the fastest way to lose them.
  */
+import { useEffect, useRef, useState } from 'react'
+import { Vector3 } from 'three'
+import type { BirdState } from '../flight/physics.ts'
+import { FWD } from '../flight/physics.ts'
 import { useGame } from '../game/store.ts'
 import { T } from '../game/constants.ts'
 
-export function HUD() {
+export function HUD({ nest, bird }: { nest: Vector3; bird: BirdState }) {
   const { airspeed, altitudeAgl, climbRate, lift, talons, perched, dead, load, carried, banked } =
     useGame()
 
@@ -54,7 +58,9 @@ export function HUD() {
         <div className="score-label">banked</div>
       </div>
 
-      {perched && !dead && <div className="perched">PERCHED &middot; hold a direction to take off</div>}
+      {perched && !dead && <div className="perched">IN THE NEST &middot; press SPACE to launch</div>}
+
+      {carried > 0 && !dead && <NestPointer nest={nest} bird={bird} />}
 
       {dead && (
         <div className="dead">
@@ -70,6 +76,54 @@ export function HUD() {
         <span><b>space</b> brake &amp; talons</span>
         <span>catch prey low, bank it at the nest</span>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Which way home, and how far, once there is something to carry there.
+ *
+ * Only shown while the talons are full. A compass that is always on tells the
+ * player where to go at every moment of the game; one that appears the instant
+ * they catch something tells them what to do NEXT, which is the only time the
+ * question is live.
+ *
+ * Polled rather than driven from the store, because the bearing changes every
+ * frame and the HUD must not re-render at sixty hertz.
+ */
+function NestPointer({ nest, bird }: { nest: Vector3; bird: BirdState }) {
+  const [bearing, setBearing] = useState(0)
+  const [distance, setDistance] = useState(0)
+  const frame = useRef(0)
+
+  useEffect(() => {
+    const forward = new Vector3()
+    const tick = () => {
+      forward.copy(FWD).applyQuaternion(bird.quat)
+      const dx = nest.x - bird.pos.x
+      const dz = nest.z - bird.pos.z
+      // Angle from where the bird is looking to where the nest is.
+      const toNest = Math.atan2(dx, -dz)
+      const heading = Math.atan2(forward.x, -forward.z)
+      let delta = toNest - heading
+      while (delta > Math.PI) delta -= Math.PI * 2
+      while (delta < -Math.PI) delta += Math.PI * 2
+      setBearing(delta)
+      setDistance(Math.hypot(dx, dz))
+      frame.current = requestAnimationFrame(tick)
+    }
+    frame.current = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame.current)
+  }, [nest, bird])
+
+  const home = Math.abs(bearing) < 0.25
+  return (
+    <div className={`nest-pointer${home ? ' on-course' : ''}`}>
+      <div className="nest-arrow" style={{ transform: `rotate(${bearing}rad)` }}>
+        &uarr;
+      </div>
+      <div className="nest-distance">{distance < 1000 ? `${distance.toFixed(0)}m` : `${(distance / 1000).toFixed(1)}km`}</div>
+      <div className="nest-label">nest</div>
     </div>
   )
 }

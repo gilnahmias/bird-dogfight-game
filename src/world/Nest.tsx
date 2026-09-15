@@ -11,52 +11,70 @@ import { jitter } from './terrain.ts'
 
 const TWIG = '#6b573c'
 const TWIG_DARK = '#4c3d2a'
-const ROCK = '#8a8781'
-const ROCK_DARK = '#6d6a64'
+const BARK = '#5a4632'
+const FOLIAGE = '#33502f'
+const FOLIAGE_DARK = '#27402a'
 
 /**
- * The crag the nest is built on.
+ * The tree the nest is built in.
  *
- * It does real work as well as looking like an eyrie: the drawn terrain mesh
- * chords across sharp ridge crests and sits below the height field there, so it
- * reaches well down past the summit and hides any gap left at coarser view
- * distances. Without it the nest appears to hover.
+ * A raptor's eyrie sits in the crown of the tallest thing around, and putting it
+ * there solves the problem the rock version was working around: the nest is no
+ * longer competing with the terrain for the same few metres, so it cannot be
+ * left hovering when the drawn ground disagrees with the height field. The trunk
+ * simply starts a little lower and nobody sees it.
  */
-function Outcrop({ site }: { site: NestSite }) {
-  const boulders = useMemo(
+function NestTree({ site }: { site: NestSite }) {
+  const height = site.treeHeight
+
+  const branches = useMemo(
     () =>
       Array.from({ length: 5 }, (_, i) => {
-        const a = (i / 5) * Math.PI * 2 + jitter(site.pos.x, site.pos.z, 20 + i) * 1.2
-        const r = 3.0 + jitter(site.pos.z, site.pos.x, 30 + i) * 1.8
+        const a = (i / 5) * Math.PI * 2 + jitter(site.pos.x, site.pos.z, 60 + i) * 1.1
         return {
-          x: Math.cos(a) * r,
-          y: -1.2 - jitter(site.pos.x, site.pos.z, 40 + i) * 2.2,
-          z: Math.sin(a) * r,
-          size: 1.1 + jitter(site.pos.x + i, site.pos.z, 50) * 1.5,
-          spin: a,
+          a,
+          y: height * (0.45 + i * 0.09),
+          len: 3.4 - i * 0.32,
+          tilt: 0.5 + jitter(site.pos.x, site.pos.z + i, 70) * 0.3,
         }
       }),
-    [site],
+    [site, height],
   )
 
   return (
     <group>
-      {/* the pillar, buried deep so it always meets the ground it is drawn over */}
-      <mesh position={[0, -11, 0]} castShadow receiveShadow>
-        <cylinderGeometry args={[3.6, 6.2, 24, 7, 1]} />
-        <meshStandardMaterial color={ROCK} roughness={1} flatShading />
+      {/* trunk, buried well below the foot so it never ends in mid-air */}
+      <mesh position={[0, height / 2 - 3, 0]} castShadow>
+        <cylinderGeometry args={[0.55, 1.5, height + 6, 7]} />
+        <meshStandardMaterial color={BARK} roughness={1} flatShading />
       </mesh>
-      {/* the ledge the nest actually rests on */}
-      <mesh position={[0, -0.5, 0]} receiveShadow>
-        <cylinderGeometry args={[4.1, 3.5, 1.6, 7, 1]} />
-        <meshStandardMaterial color={ROCK_DARK} roughness={1} flatShading />
-      </mesh>
-      {boulders.map((b, i) => (
-        <mesh key={i} position={[b.x, b.y, b.z]} rotation={[b.spin, b.spin * 1.7, 0]} castShadow>
-          <dodecahedronGeometry args={[b.size, 0]} />
-          <meshStandardMaterial color={i % 2 ? ROCK : ROCK_DARK} roughness={1} flatShading />
+
+      {/* bare limbs below the crown, which is what makes it read as a tree */}
+      {branches.map((b, i) => (
+        <mesh
+          key={i}
+          position={[Math.cos(b.a) * b.len * 0.5, b.y, Math.sin(b.a) * b.len * 0.5]}
+          rotation={[b.tilt * Math.sin(b.a), -b.a, b.tilt * Math.cos(b.a) + Math.PI / 2]}
+          castShadow
+        >
+          <cylinderGeometry args={[0.16, 0.3, b.len, 5]} />
+          <meshStandardMaterial color={BARK} roughness={1} flatShading />
         </mesh>
       ))}
+
+      {/* foliage, in flattened tiers, open at the very top where the nest sits */}
+      {[0.52, 0.68, 0.82].map((t, i) => (
+        <mesh key={t} position={[0, height * t, 0]} castShadow>
+          <coneGeometry args={[7.2 - i * 1.6, 7 - i * 1.2, 7]} />
+          <meshStandardMaterial color={i % 2 ? FOLIAGE : FOLIAGE_DARK} roughness={1} flatShading />
+        </mesh>
+      ))}
+
+      {/* the crotch the nest is wedged into */}
+      <mesh position={[0, height - 0.6, 0]}>
+        <cylinderGeometry args={[2.9, 2.2, 1.1, 7]} />
+        <meshStandardMaterial color={BARK} roughness={1} flatShading />
+      </mesh>
     </group>
   )
 }
@@ -82,21 +100,21 @@ export function Nest({ site }: { site: NestSite }) {
 
   return (
     <group position={[site.pos.x, site.pos.y, site.pos.z]}>
-      <Outcrop site={site} />
-      {/* the bowl, sunk slightly so it never floats over uneven ground */}
-      <mesh position={[0, 0.35, 0]} rotation={[Math.PI / 2, 0, 0]} receiveShadow>
+      <NestTree site={site} />
+      {/* the bowl, wedged into the crown of the tree */}
+      <mesh position={[0, site.treeHeight + 0.35, 0]} rotation={[Math.PI / 2, 0, 0]} receiveShadow>
         <torusGeometry args={[2.4, 0.75, 6, 16]} />
         <meshStandardMaterial color={TWIG} roughness={1} flatShading />
       </mesh>
       {/* the floor of the nest */}
-      <mesh position={[0, 0.15, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh position={[0, site.treeHeight + 0.15, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <circleGeometry args={[2.5, 16]} />
         <meshStandardMaterial color={TWIG_DARK} roughness={1} />
       </mesh>
       {sticks.map((s, i) => (
         <mesh
           key={i}
-          position={[s.x, 0.55, s.z]}
+          position={[s.x, site.treeHeight + 0.55, s.z]}
           rotation={[Math.PI / 2 + s.tilt, 0, s.spin]}
           castShadow
         >

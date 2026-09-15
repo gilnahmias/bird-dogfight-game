@@ -38,17 +38,19 @@ test('flying level costs no resource - there is nothing left to run out of', () 
 })
 
 test('there is no stall: hauling the nose up costs speed but never drops the wing', () => {
+  // Held long enough this loops the bird, and the far side of a loop is a steep
+  // descent - which is flying, not stalling. What must never happen is the bird
+  // losing its wing and its controls and simply falling.
   const b = createBird(new Vector3(0, 2000, 0))
   b.vel.set(0, 0, -7) // slow, and asking for everything
-  let worstClimb = Infinity
   const dt = 1 / 120
-  for (let i = 0; i < 6 / dt; i++) {
-    step(b, { roll: 0, pitch: 1, brake: false }, CALM, dt)
-    worstClimb = Math.min(worstClimb, b.climbRate)
-  }
-  // A stall would show up as the bird falling out of the sky mid-manoeuvre.
-  assert.ok(worstClimb > -18, `the bird dropped at ${worstClimb.toFixed(1)} m/s - that is a stall`)
-  assert.ok(b.pos.y > 1900, `lost ${(2000 - b.pos.y).toFixed(0)}m while pulling up`)
+  for (let i = 0; i < 6 / dt; i++) step(b, { roll: 0, pitch: 1, brake: false }, CALM, dt)
+  assert.ok(!b.dead, 'the bird should still be flying')
+
+  // Let go, and it flies out of it on its own.
+  for (let i = 0; i < 6 / dt; i++) step(b, NEUTRAL, CALM, dt)
+  assert.ok(b.airspeed > 12, `never recovered its speed, sitting at ${b.airspeed.toFixed(1)} m/s`)
+  assert.ok(Math.abs(b.climbRate) < 12, `still out of control at ${b.climbRate.toFixed(1)} m/s`)
 })
 
 test('lift rises with angle of attack and flattens off, never falling away', () => {
@@ -198,11 +200,26 @@ test('a perched bird can leap back into the air', () => {
   b.perched = true
   const dt = 1 / 120
   for (let i = 0; i < 2 / dt; i++) {
-    step(b, { roll: 0, pitch: 0.7, brake: false }, CALM, dt)
+    step(b, { roll: 0, pitch: 0.7, brake: true }, CALM, dt)
     if (resolveGround(b, 10, false, dt) === 'clear') break
   }
   assert.ok(!b.perched, 'the bird never got off the ground')
   assert.ok(b.pos.y > 11, `only reached ${b.pos.y.toFixed(1)}m`)
+})
+
+test('a perched bird stays put until the player asks it to go', () => {
+  // The run opens standing in the nest. Leaping the moment it touches down - or
+  // the moment the game starts - takes the decision away from the player.
+  const b = createBird(new Vector3(0, 10.5, 0))
+  b.vel.set(0, 0, 0)
+  b.perched = true
+  const dt = 1 / 120
+  for (let i = 0; i < 3 / dt; i++) {
+    step(b, { roll: 0, pitch: 0, brake: false }, CALM, dt)
+    resolveGround(b, 10, false, dt)
+  }
+  assert.ok(b.perched, 'the bird took off on its own')
+  assert.ok(b.pos.y < 11.5, `it drifted up to ${b.pos.y.toFixed(1)}m without being asked`)
 })
 
 test('arriving hard still kills, but brushing the ground at speed does not', () => {

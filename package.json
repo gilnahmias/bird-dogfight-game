@@ -15,7 +15,8 @@
     "falls": "node --experimental-strip-types src/dev/falls.ts",
     "nest": "node --experimental-strip-types src/dev/nestfloat.ts",
     "shadow": "node --experimental-strip-types src/dev/shadowcheck.ts",
-    "tarns": "node --experimental-strip-types src/dev/tarncheck.ts"
+    "tarns": "node --experimental-strip-types src/dev/tarncheck.ts",
+    "fallcheck": "node --experimental-strip-types src/dev/fallcheck.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",

@@ -93,7 +93,7 @@ export default function App() {
         <ChaseCamera state={bird} />
         <DevBridge bird={bird} />
       </Canvas>
-      <HUD nest={nest} bird={bird} />
+      <HUD nest={nest} bird={bird} seed={SEED} />
     </>
   )
 }

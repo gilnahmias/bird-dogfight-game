@@ -17,7 +17,8 @@
     "shadow": "node --experimental-strip-types src/dev/shadowcheck.ts",
     "tarns": "node --experimental-strip-types src/dev/tarncheck.ts",
     "fallcheck": "node --experimental-strip-types src/dev/fallcheck.ts",
-    "launch": "node --experimental-strip-types src/dev/launch.ts"
+    "launch": "node --experimental-strip-types src/dev/launch.ts",
+    "carry": "node --experimental-strip-types src/dev/carry.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",

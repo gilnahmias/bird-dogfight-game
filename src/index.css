@@ -155,6 +155,18 @@ canvas {
   opacity: 1;
 }
 
+/* The lake compass sits lower and cooler, so the two are never confused. */
+.nest-pointer.water {
+  top: 20%;
+  color: #9fd6e8;
+  opacity: 0.7;
+}
+
+.nest-pointer.water.on-course {
+  color: #bfeaf7;
+  opacity: 0.95;
+}
+
 .nest-arrow {
   font-size: 34px;
   line-height: 1;

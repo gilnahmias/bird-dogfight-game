@@ -61,8 +61,11 @@ function Pool({ tarn }: { tarn: Tarn }) {
       uTime: { value: 0 },
       uCamera: { value: new Vector3() },
       uSun: { value: SUN_DIRECTION.clone().normalize() },
-      uDeep: { value: new Vector3(0.05, 0.13, 0.16) },
-      uSky: { value: new Vector3(0.58, 0.72, 0.85) },
+      // Brighter than the sea on purpose. A mountain tarn really is a different
+      // colour - glacial, turquoise - and it is also the only thing that says
+      // "water up there" from a kilometre away.
+      uDeep: { value: new Vector3(0.07, 0.24, 0.3) },
+      uSky: { value: new Vector3(0.66, 0.86, 0.94) },
     }),
     [],
   )

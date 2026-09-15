@@ -41,7 +41,7 @@ export const TUNING = {
    * pointless and quietly undid the whole point of reading the air. The spare
    * power here is worth about 4 m/s of climb - real, but nothing like a thermal.
    */
-  maxThrust: 15,
+  maxThrust: 18,
   /** Fraction of cruise speed over which the governor goes from idle to full. */
   thrustGain: 0.35,
   /** Standing thrust at cruise, as a fraction of maximum - roughly cruise drag. */

@@ -28,7 +28,9 @@ test('each waterfall starts above the water and falls a real distance', () => {
         w.top.y - w.base.y >= MIN_DROP - 0.01,
         `${seed}: drop of only ${(w.top.y - w.base.y).toFixed(1)}m`,
       )
-      assert.ok(w.width > 0 && w.width < 30, `${seed}: implausible width ${w.width}`)
+      // Wide, deliberately: a fifteen metre ribbon a kilometre off is a thread,
+      // and the player could not find the waterfalls at all.
+      assert.ok(w.width > 10 && w.width < 45, `${seed}: implausible width ${w.width}`)
     }
   }
 })

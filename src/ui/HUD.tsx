@@ -12,8 +12,9 @@ import type { BirdState } from '../flight/physics.ts'
 import { FWD } from '../flight/physics.ts'
 import { useGame } from '../game/store.ts'
 import { T } from '../game/constants.ts'
+import { tarnSitesNear } from '../world/terrain.ts'
 
-export function HUD({ nest, bird }: { nest: Vector3; bird: BirdState }) {
+export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed: string }) {
   const { airspeed, altitudeAgl, climbRate, lift, talons, perched, dead, load, carried, banked } =
     useGame()
 
@@ -60,7 +61,8 @@ export function HUD({ nest, bird }: { nest: Vector3; bird: BirdState }) {
 
       {perched && !dead && <div className="perched">IN THE NEST &middot; press SPACE to launch</div>}
 
-      {carried > 0 && !dead && <NestPointer nest={nest} bird={bird} />}
+      {carried > 0 && !dead && <Pointer target={nest} label="nest" bird={bird} tone="home" />}
+      {carried === 0 && !dead && <LakePointer bird={bird} seed={seed} />}
 
       {dead && (
         <div className="dead">
@@ -81,17 +83,22 @@ export function HUD({ nest, bird }: { nest: Vector3; bird: BirdState }) {
 }
 
 /**
- * Which way home, and how far, once there is something to carry there.
- *
- * Only shown while the talons are full. A compass that is always on tells the
- * player where to go at every moment of the game; one that appears the instant
- * they catch something tells them what to do NEXT, which is the only time the
- * question is live.
+ * Which way something is, and how far.
  *
  * Polled rather than driven from the store, because the bearing changes every
  * frame and the HUD must not re-render at sixty hertz.
  */
-function NestPointer({ nest, bird }: { nest: Vector3; bird: BirdState }) {
+function Pointer({
+  target,
+  label,
+  bird,
+  tone,
+}: {
+  target: Vector3
+  label: string
+  bird: BirdState
+  tone: 'home' | 'water'
+}) {
   const [bearing, setBearing] = useState(0)
   const [distance, setDistance] = useState(0)
   const frame = useRef(0)
@@ -100,12 +107,12 @@ function NestPointer({ nest, bird }: { nest: Vector3; bird: BirdState }) {
     const forward = new Vector3()
     const tick = () => {
       forward.copy(FWD).applyQuaternion(bird.quat)
-      const dx = nest.x - bird.pos.x
-      const dz = nest.z - bird.pos.z
-      // Angle from where the bird is looking to where the nest is.
-      const toNest = Math.atan2(dx, -dz)
+      const dx = target.x - bird.pos.x
+      const dz = target.z - bird.pos.z
+      // Angle from where the bird is looking to where the target is.
+      const toTarget = Math.atan2(dx, -dz)
       const heading = Math.atan2(forward.x, -forward.z)
-      let delta = toNest - heading
+      let delta = toTarget - heading
       while (delta > Math.PI) delta -= Math.PI * 2
       while (delta < -Math.PI) delta += Math.PI * 2
       setBearing(delta)
@@ -114,19 +121,54 @@ function NestPointer({ nest, bird }: { nest: Vector3; bird: BirdState }) {
     }
     frame.current = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame.current)
-  }, [nest, bird])
+  }, [target, bird])
 
-  const home = Math.abs(bearing) < 0.25
+  const onCourse = Math.abs(bearing) < 0.25
   return (
-    <div className={`nest-pointer${home ? ' on-course' : ''}`}>
+    <div className={`nest-pointer ${tone}${onCourse ? ' on-course' : ''}`}>
       <div className="nest-arrow" style={{ transform: `rotate(${bearing}rad)` }}>
         &uarr;
       </div>
-      <div className="nest-distance">{distance < 1000 ? `${distance.toFixed(0)}m` : `${(distance / 1000).toFixed(1)}km`}</div>
-      <div className="nest-label">nest</div>
+      <div className="nest-distance">
+        {distance < 1000 ? `${distance.toFixed(0)}m` : `${(distance / 1000).toFixed(1)}km`}
+      </div>
+      <div className="nest-label">{label}</div>
     </div>
   )
 }
+
+/**
+ * Where the nearest mountain lake is.
+ *
+ * The world has a dozen of them within a few kilometres, each with a waterfall
+ * spilling out of it, and the player still could not find one - a hundred metre
+ * pool in a three kilometre landscape is a needle, and the fog closes in at
+ * 1.4km. Nothing else in the game says "there is water up there", so this does.
+ *
+ * Shown only when the talons are EMPTY: with a catch to carry, the way home is
+ * the live question and two compasses would be one too many.
+ */
+function LakePointer({ bird, seed }: { bird: BirdState; seed: string }) {
+  const [lake, setLake] = useState<Vector3 | null>(null)
+
+  useEffect(() => {
+    const find = () => {
+      const near = tarnSitesNear(bird.pos.x, bird.pos.z, LAKE_SEARCH, seed)[0]
+      setLake(near ? new Vector3(near.x, near.level, near.z) : null)
+    }
+    find()
+    // The nearest lake changes as the bird travels, but slowly. Once a second is
+    // plenty, and it keeps a cell scan out of the frame loop.
+    const timer = setInterval(find, 1000)
+    return () => clearInterval(timer)
+  }, [bird, seed])
+
+  if (!lake) return null
+  return <Pointer target={lake} label="lake" bird={bird} tone="water" />
+}
+
+/** How far to look for a lake to point at. Beyond this, it is not news. */
+const LAKE_SEARCH = 3000
 
 function Vario({ lift }: { lift: number }) {
   const strength = Math.min(1, Math.abs(lift) / 4)

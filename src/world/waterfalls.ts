@@ -200,7 +200,11 @@ function fallFromTarn(tarn: Tarn, seed: string): Waterfall | null {
     base: traced.base,
     dir: traced.dir,
     // A bigger pool spills a wider fall.
-    width: 6 + tarn.radius * 0.28,
+    // Wide enough to see from a distance. A fifteen metre ribbon on a green
+    // hillside a kilometre away is a thread; the player could not find the falls
+    // at all, and the first thing that has to be true is that they read as
+    // water from the air.
+    width: 12 + tarn.radius * 0.34,
     path: traced.path,
   }
 }

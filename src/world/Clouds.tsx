@@ -27,8 +27,8 @@ import { AIR, WORLD } from '../game/constants.ts'
 import { SUN_DIRECTION, SUN_DISTANCE } from './sky.ts'
 
 /** Blobs per cloud, and clouds in the sky around the player. */
-const PUFFS_PER_CLOUD = 7
-const MAX_CLOUDS = 26
+const PUFFS_PER_CLOUD = 8
+const MAX_CLOUDS = 22
 const PUFF_CAPACITY = MAX_CLOUDS * PUFFS_PER_CLOUD
 
 /** How far out clouds are placed, and how strong a thermal has to be to raise one. */
@@ -41,8 +41,14 @@ const CLOUDBASE = AIR.thermalCeiling * 0.88
 
 type Puff = { pos: Vector3; scale: number; spin: number }
 
-function buildClouds(centreX: number, centreZ: number, seed: string, time: number): Puff[] {
+function buildClouds(
+  centreX: number,
+  centreZ: number,
+  seed: string,
+  time: number,
+): { puffs: Puff[]; patches: CloudPatch[] } {
   const puffs: Puff[] = []
+  const patches: CloudPatch[] = []
 
   for (let dz = -RANGE; dz <= RANGE && puffs.length < PUFF_CAPACITY; dz += SEARCH_STEP) {
     for (let dx = -RANGE; dx <= RANGE && puffs.length < PUFF_CAPACITY; dx += SEARCH_STEP) {
@@ -56,8 +62,9 @@ function buildClouds(centreX: number, centreZ: number, seed: string, time: numbe
 
       // Bigger cloud over a stronger thermal, so the sky shows you where the
       // best lift is, not merely that some exists.
-      const size = 46 + (strength / AIR.thermalGain) * 72
+      const size = 78 + (strength / AIR.thermalGain) * 120
       const base = ground + CLOUDBASE
+      patches.push({ position: new Vector3(x, base, z), radius: size * 0.75 })
 
       for (let i = 0; i < PUFFS_PER_CLOUD; i++) {
         const a = (i / PUFFS_PER_CLOUD) * Math.PI * 2 + jitter(x, z, i) * 1.5
@@ -74,7 +81,7 @@ function buildClouds(centreX: number, centreZ: number, seed: string, time: numbe
       }
     }
   }
-  return puffs
+  return { puffs, patches }
 }
 
 /**
@@ -87,7 +94,20 @@ function buildClouds(centreX: number, centreZ: number, seed: string, time: numbe
  */
 const REBUILD_SECONDS = 24
 
-export function Clouds({ target, seed }: { target: { current: Vector3 }; seed: string }) {
+export type CloudPatch = { position: Vector3; radius: number }
+
+export function Clouds({
+  target,
+  seed,
+  onPatches,
+  driftOut,
+}: {
+  target: { current: Vector3 }
+  seed: string
+  /** Called with the centre and size of each cloud, for the shade they cast. */
+  onPatches?: (patches: CloudPatch[]) => void
+  driftOut?: { current: Vector3 }
+}) {
   const mesh = useRef<InstancedMesh>(null)
   const [centre, setCentre] = useState<[number, number]>([0, 0])
   const [epoch, setEpoch] = useState(0)
@@ -107,10 +127,15 @@ export function Clouds({ target, seed }: { target: { current: Vector3 }; seed: s
     if (wanted !== epoch) setEpoch(wanted)
   })
 
-  const puffs = useMemo(
+  const built = useMemo(
     () => buildClouds(centre[0], centre[1], seed, epoch * REBUILD_SECONDS),
     [centre, seed, epoch],
   )
+  const puffs = built.puffs
+
+  useEffect(() => {
+    onPatches?.(built.patches)
+  }, [built, onPatches])
 
   useEffect(() => {
     if (!mesh.current) return
@@ -140,6 +165,7 @@ export function Clouds({ target, seed }: { target: { current: Vector3 }; seed: s
     const since = frame.clock.elapsedTime - epoch * REBUILD_SECONDS
     windDirection(seed, drift).multiplyScalar(AIR.windSpeed * since)
     mesh.current.position.set(drift.x, 0, drift.z)
+    driftOut?.current.set(drift.x, 0, drift.z)
   })
 
   return (
@@ -155,7 +181,18 @@ export function Clouds({ target, seed }: { target: { current: Vector3 }; seed: s
         would sort against each other and flicker as the camera turns; solid
         blobs just read as a lumpy cumulus, which is what they are.
       */}
-      <meshStandardMaterial color="#f6f8fb" roughness={1} flatShading />
+      {/*
+        Emissive on purpose. The bird spends most of its time UNDER the clouds,
+        and a lit-only material leaves the underside in shadow - which rendered
+        as near-black blobs overhead. Real cumulus undersides are grey, not dark.
+      */}
+      <meshStandardMaterial
+        color="#ffffff"
+        emissive="#b9c9dc"
+        emissiveIntensity={0.85}
+        roughness={1}
+        flatShading
+      />
     </instancedMesh>
   )
 }

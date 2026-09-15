@@ -13,10 +13,35 @@ export { hashSeed, smoothstep }
 export type Biome = 'water' | 'rock' | 'forest' | 'grass'
 
 
-const F = { base: 0, ridge: 1, river: 2, moist: 3, warp: 4 } as const
+const F = { base: 0, ridge: 1, river: 2, moist: 3, warp: 4, tarn: 5 } as const
 
 function fieldsForSeed(seed: string) {
-  return fieldsFor(seed, 'terrain', 5)
+  return fieldsFor(seed, 'terrain', 6)
+}
+
+/**
+ * How strongly a mountain tarn sits at a point, 0 to 1.
+ *
+ * Deliberately part of the terrain rather than something searched for after the
+ * fact. Ridged noise makes sharp crests and smooth valleys, so it almost never
+ * produces a closed hollow high on a hill by accident - and without hollows
+ * there are no mountain lakes, and without those a waterfall has nowhere to come
+ * from. This carves them on purpose, in the highland band only.
+ */
+export function tarnFieldAt(x: number, z: number, seed: string): number {
+  // Around a 170m wavelength, so a basin is roughly 80m across. Wider than that
+  // and the rim is carved as deeply as the floor, leaving a broad dip with no
+  // lip to hold water - which is what the first attempt produced.
+  const field = fbm(fieldsForSeed(seed)[F.tarn], x * 0.0058, z * 0.0058, 2)
+  return smoothstep(0.26, 0.62, field)
+}
+
+/** Depth of the basin carved at a point, in metres. */
+function tarnCarve(x: number, z: number, h: number, seed: string): number {
+  // Only up in the hills: not on the coastal flats, not on the snow line.
+  const band = smoothstep(46, 92, h) * (1 - smoothstep(185, 240, h))
+  if (band <= 0) return 0
+  return tarnFieldAt(x, z, seed) * band * 22
 }
 
 /**
@@ -53,6 +78,9 @@ export function heightAt(x: number, z: number, seed: string): number {
   const channel = riverAt(x, z, seed)
   // Only carve where there is land to carve, and let the channel deepen downhill.
   h -= channel * 34 * smoothstep(-10, 40, h)
+
+  // Scoop out highland basins, which fill to become tarns.
+  h -= tarnCarve(x, z, h, seed)
 
   return h
 }

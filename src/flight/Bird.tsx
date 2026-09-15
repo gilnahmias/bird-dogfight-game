@@ -8,7 +8,7 @@
  */
 import { useEffect, useMemo, useRef, type RefObject } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { ExtrudeGeometry, Group, Shape, Vector3 } from 'three'
+import { DoubleSide, ExtrudeGeometry, Group, Shape, ShapeGeometry, Vector3 } from 'three'
 import { createBird, resolveGround, step, type BirdState } from './physics.ts'
 import { input } from './input.ts'
 import { T } from '../game/constants.ts'
@@ -16,6 +16,18 @@ import { biomeAt, heightAt } from '../world/terrain.ts'
 import { useGame } from '../game/store.ts'
 import { createAirSample, sampleAir } from '../world/air.ts'
 import { applyWingPose, wingPose } from './wingPose.ts'
+import {
+  alula,
+  armShape,
+  ELBOW_X,
+  greaterCoverts,
+  handShape,
+  lesserCoverts,
+  primaries,
+  secondaries,
+  tailFeathers,
+  WRIST_X,
+} from './wingShapes.ts'
 
 const FIXED_DT = 1 / 120
 const MAX_STEPS = 8
@@ -43,6 +55,7 @@ export function Bird({
     elbow: useRef<Group>(null),
     wrist: useRef<Group>(null),
   }
+  const feet = { left: useRef<Group>(null), right: useRef<Group>(null) }
   const accumulator = useRef(0)
   const telemetryClock = useRef(0)
   const wingPhase = useRef(0)
@@ -131,13 +144,14 @@ export function Bird({
 
   return (
     <group ref={root}>
-      <BirdModel left={left} right={right} />
+      <BirdModel left={left} right={right} feet={feet} />
     </group>
   )
 }
 
 const FEATHER = '#6b4f35'
-const FEATHER_DARK = '#4a3524'
+const FEATHER_MID = '#5b422c'
+const FEATHER_DARK = '#3f2c1e'
 const FEATHER_LIGHT = '#8a6a48'
 const BELLY = '#d8cbb4'
 
@@ -145,7 +159,15 @@ const BELLY = '#d8cbb4'
  * Low-poly raptor built from primitives. Forward is -Z. → skipped: a real
  * modelled and skinned bird, add when the flight loop is proven fun.
  */
-function BirdModel({ left, right }: { left: WingJoints; right: WingJoints }) {
+function BirdModel({
+  left,
+  right,
+  feet,
+}: {
+  left: WingJoints
+  right: WingJoints
+  feet: { left: RefObject<Group | null>; right: RefObject<Group | null> }
+}) {
   return (
     <group>
       {/* body */}
@@ -169,13 +191,9 @@ function BirdModel({ left, right }: { left: WingJoints; right: WingJoints }) {
         <meshStandardMaterial color="#e0b341" roughness={0.6} />
       </mesh>
       <Tail />
-      {/* talons, tucked under - these are the weapon, so they should be visible */}
-      {[-0.22, 0.22].map((x) => (
-        <mesh key={x} position={[x, -0.45, 0.35]} rotation={[0.5, 0, 0]}>
-          <boxGeometry args={[0.1, 0.12, 0.5]} />
-          <meshStandardMaterial color="#d8b23a" roughness={0.5} />
-        </mesh>
-      ))}
+      {/* The feet. These are the weapon, so they get built properly. */}
+      <Foot side={-1} grip={feet.left} />
+      <Foot side={1} grip={feet.right} />
 
       <group position={[0.35, 0.12, 0]}>
         <Wing joints={left} />
@@ -193,118 +211,85 @@ function BirdModel({ left, right }: { left: WingJoints; right: WingJoints }) {
   )
 }
 
-/**
- * Wing plan-form, split at the elbow and again at the wrist.
- *
- * It is three pieces rather than one because a wing that pivots only at the
- * shoulder reads as a board. Splitting it lets the stroke travel outward, with
- * each joint trailing the one inboard of it.
- */
-function innerShape(): Shape {
-  const s = new Shape()
-  s.moveTo(0, -0.62)
-  s.quadraticCurveTo(1.0, -0.8, 2.0, -0.72)
-  s.lineTo(2.0, 0.82)
-  s.quadraticCurveTo(1.0, 0.86, 0, 0.66)
-  s.closePath()
-  return s
-}
-
-function outerShape(): Shape {
-  const s = new Shape()
-  s.moveTo(0, -0.72)
-  s.quadraticCurveTo(1.0, -0.6, 1.95, -0.06)
-  s.lineTo(1.9, 0.4)
-  s.quadraticCurveTo(1.0, 0.74, 0, 0.82)
-  s.closePath()
-  return s
-}
+const SCALE_SKIN = '#e0b545'
+const CLAW = '#2a2420'
 
 /**
- * One feather, as an outline in the wing's own plane.
+ * A raptor's foot: a feathered leg, three forward toes and a hallux behind,
+ * each toe two jointed segments ending in a hooked claw.
  *
- * Feathers are built as arrays of shapes fed to a single ExtrudeGeometry rather
- * than as a mesh each: ExtrudeGeometry accepts many shapes and merges them, so a
- * whole row of primaries costs one draw call. That matters once the sky has
- * rival raptors in it, not just this one.
- *
- * `angle` splays the feather; 0 points straight back along the chord.
+ * Built as a group that can be curled, because the talons are about to become a
+ * verb rather than a decoration - held tucked in flight, thrown forward and
+ * open to strike or to take prey.
  */
-function feather(cx: number, cy: number, length: number, width: number, angle: number): Shape {
-  const outline: [number, number][] = [
-    [0, 0],
-    [width * 0.5, length * 0.28],
-    [width * 0.36, length * 0.76],
-    [0, length],
-    [-width * 0.36, length * 0.76],
-    [-width * 0.5, length * 0.28],
-  ]
-  const shape = new Shape()
-  const cos = Math.cos(angle)
-  const sin = Math.sin(angle)
-  outline.forEach(([px, py], i) => {
-    const x = cx + px * cos - py * sin
-    const y = cy + px * sin + py * cos
-    if (i === 0) shape.moveTo(x, y)
-    else shape.lineTo(x, y)
-  })
-  shape.closePath()
-  return shape
+function Toe({
+  spread,
+  pitch,
+  length,
+  claw,
+}: {
+  spread: number
+  pitch: number
+  length: number
+  claw: number
+}) {
+  return (
+    <group rotation={[pitch, spread, 0]}>
+      {/* first segment */}
+      <mesh position={[0, 0, -length * 0.5]} rotation={[Math.PI / 2, 0, 0]} castShadow>
+        <cylinderGeometry args={[0.035, 0.045, length, 5]} />
+        <meshStandardMaterial color={SCALE_SKIN} roughness={0.55} flatShading />
+      </mesh>
+      {/* second segment, angled down toward the claw */}
+      <group position={[0, 0, -length]} rotation={[0.7, 0, 0]}>
+        <mesh position={[0, 0, -length * 0.32]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.028, 0.035, length * 0.64, 5]} />
+          <meshStandardMaterial color={SCALE_SKIN} roughness={0.55} flatShading />
+        </mesh>
+        {/* the hook */}
+        <mesh
+          position={[0, -0.04, -length * 0.64 - 0.06]}
+          rotation={[claw, 0, 0]}
+          castShadow
+        >
+          <coneGeometry args={[0.035, 0.26, 6]} />
+          <meshStandardMaterial color={CLAW} roughness={0.35} metalness={0.15} flatShading />
+        </mesh>
+      </group>
+    </group>
+  )
 }
 
-/** A row of feathers laid along the span, fanning as they go outboard. */
-function featherRow(
-  count: number,
-  spanFrom: number,
-  spanTo: number,
-  chord: number,
-  lengthFrom: number,
-  lengthTo: number,
-  width: number,
-  angleFrom: number,
-  angleTo: number,
-): Shape[] {
-  return Array.from({ length: count }, (_, i) => {
-    const t = count === 1 ? 0 : i / (count - 1)
-    return feather(
-      spanFrom + (spanTo - spanFrom) * t,
-      chord,
-      lengthFrom + (lengthTo - lengthFrom) * t,
-      width,
-      angleFrom + (angleTo - angleFrom) * t,
-    )
-  })
+function Foot({ side, grip }: { side: number; grip: RefObject<Group | null> }) {
+  return (
+    <group position={[side * 0.19, -0.3, 0.16]}>
+      {/* feathered thigh, so the leg does not sprout from nothing */}
+      <mesh position={[0, -0.02, 0.04]} castShadow>
+        <sphereGeometry args={[0.15, 8, 6]} />
+        <meshStandardMaterial color={FEATHER_LIGHT} roughness={0.95} flatShading />
+      </mesh>
+      {/* tarsus */}
+      <group ref={grip}>
+        <mesh position={[0, -0.16, 0.02]} castShadow>
+          <cylinderGeometry args={[0.05, 0.058, 0.3, 6]} />
+          <meshStandardMaterial color={SCALE_SKIN} roughness={0.55} flatShading />
+        </mesh>
+        <group position={[0, -0.3, 0]}>
+          <Toe spread={side * 0.42} pitch={0.2} length={0.2} claw={1.15} />
+          <Toe spread={side * 0.06} pitch={0.12} length={0.24} claw={1.2} />
+          <Toe spread={-side * 0.34} pitch={0.22} length={0.19} claw={1.15} />
+          {/* hallux: the back toe, the one that does the killing */}
+          <Toe spread={Math.PI - side * 0.12} pitch={0.3} length={0.17} claw={1.35} />
+        </group>
+      </group>
+    </group>
+  )
 }
 
-/** Secondaries: the short feathers along the trailing edge of the inner wing. */
-function secondaryShapes(): Shape[] {
-  return featherRow(7, 0.15, 1.95, 0.55, 0.78, 0.92, 0.3, 0.16, -0.1)
-}
+const SPAR = { depth: 0.07, bevelEnabled: false } as const
 
-/** Coverts: the small overlapping feathers that sheathe the leading edge. */
-function covertShapes(): Shape[] {
-  return featherRow(6, 0.25, 1.8, -0.5, 0.5, 0.42, 0.26, 2.9, 3.25)
-}
-
-/** Primaries: the long fingers at the wingtip that splay in a glide. */
-function primaryShapes(): Shape[] {
-  return featherRow(6, 0.0, 0.7, -0.05, 1.5, 1.15, 0.3, 1.25, 2.05)
-}
-
-/** Tail feathers, fanned rather than a single slab. */
-function tailShapes(): Shape[] {
-  return featherRow(7, -0.42, 0.42, 0, 1.25, 1.25, 0.34, -0.42, 0.42)
-}
-
-const EXTRUDE = { depth: 0.09, bevelEnabled: false } as const
-const FEATHER_EXTRUDE = { depth: 0.05, bevelEnabled: false } as const
-
-/** Lay an extruded plan-form flat: chord along Z, thickness in Y. */
+/** Lay a flat plan-form out: chord along Z, thickness in Y. */
 const FLAT: [number, number, number] = [Math.PI / 2, 0, 0]
-
-/** Where the elbow sits along the wing, and the wrist beyond it. */
-const ELBOW_X = 2.0
-const WRIST_X = 1.95
 
 export type WingJoints = {
   shoulder: RefObject<Group | null>
@@ -312,39 +297,61 @@ export type WingJoints = {
   wrist: RefObject<Group | null>
 }
 
+/**
+ * A row of flat feathers. Stacked at slightly different heights so they layer
+ * rather than fight for the same pixels, and double sided because a plane with
+ * no thickness has no back.
+ */
+function Feathers({
+  shapes,
+  color,
+  lift,
+}: {
+  shapes: Shape[]
+  color: string
+  lift: number
+}) {
+  const geometry = useMemo(() => new ShapeGeometry(shapes, 8), [shapes])
+  return (
+    <mesh geometry={geometry} position={[0, lift, 0]} rotation={FLAT}>
+      <meshStandardMaterial
+        color={color}
+        roughness={0.95}
+        flatShading
+        side={DoubleSide}
+        polygonOffset
+        polygonOffsetFactor={-1}
+        polygonOffsetUnits={-1}
+      />
+    </mesh>
+  )
+}
+
 /* oxlint-disable react/refs -- handing a ref object to `ref=` is what refs are
    for; the rule is aimed at reading `.current` during render, which this does
    not do. The joints have to be refs because the frame loop poses them 60 times
    a second and must never trigger a render. */
 function Wing({ joints }: { joints: WingJoints }) {
-  const inner = useMemo(() => new ExtrudeGeometry(innerShape(), EXTRUDE), [])
-  const outer = useMemo(() => new ExtrudeGeometry(outerShape(), EXTRUDE), [])
-  const secondaries = useMemo(() => new ExtrudeGeometry(secondaryShapes(), FEATHER_EXTRUDE), [])
-  const coverts = useMemo(() => new ExtrudeGeometry(covertShapes(), FEATHER_EXTRUDE), [])
-  const primaries = useMemo(() => new ExtrudeGeometry(primaryShapes(), FEATHER_EXTRUDE), [])
+  const arm = useMemo(() => new ExtrudeGeometry(armShape(), SPAR), [])
+  const hand = useMemo(() => new ExtrudeGeometry(handShape(), SPAR), [])
 
   return (
     <group ref={joints.shoulder}>
-      <mesh geometry={inner} rotation={FLAT} castShadow>
+      <mesh geometry={arm} rotation={FLAT} castShadow>
         <meshStandardMaterial color={FEATHER} roughness={0.9} flatShading />
       </mesh>
-      {/* sat just above and below the panel so both faces show feathering */}
-      <mesh geometry={secondaries} position={[0, 0.045, 0]} rotation={FLAT}>
-        <meshStandardMaterial color={FEATHER_DARK} roughness={0.95} flatShading />
-      </mesh>
-      <mesh geometry={coverts} position={[0, 0.07, 0]} rotation={FLAT}>
-        <meshStandardMaterial color={FEATHER_LIGHT} roughness={0.95} flatShading />
-      </mesh>
+      <Feathers shapes={useMemo(() => secondaries(), [])} color={FEATHER} lift={0.0} />
+      <Feathers shapes={useMemo(() => greaterCoverts(), [])} color={FEATHER_MID} lift={0.05} />
+      <Feathers shapes={useMemo(() => lesserCoverts(), [])} color={FEATHER_LIGHT} lift={0.09} />
 
       <group ref={joints.elbow} position={[ELBOW_X, 0, 0]}>
-        <mesh geometry={outer} rotation={FLAT} castShadow>
+        <mesh geometry={hand} rotation={FLAT} castShadow>
           <meshStandardMaterial color={FEATHER} roughness={0.92} flatShading />
         </mesh>
 
         <group ref={joints.wrist} position={[WRIST_X, 0, 0]}>
-          <mesh geometry={primaries} rotation={FLAT}>
-            <meshStandardMaterial color={FEATHER_DARK} roughness={0.95} flatShading />
-          </mesh>
+          <Feathers shapes={useMemo(() => primaries(), [])} color={FEATHER_DARK} lift={-0.01} />
+          <Feathers shapes={useMemo(() => alula(), [])} color={FEATHER_LIGHT} lift={0.07} />
         </group>
       </group>
     </group>
@@ -353,10 +360,15 @@ function Wing({ joints }: { joints: WingJoints }) {
 /* oxlint-enable react/refs */
 
 function Tail() {
-  const tail = useMemo(() => new ExtrudeGeometry(tailShapes(), FEATHER_EXTRUDE), [])
+  const shapes = useMemo(() => tailFeathers(), [])
   return (
-    <mesh geometry={tail} position={[0, 0.02, 0.95]} rotation={FLAT}>
-      <meshStandardMaterial color={FEATHER_DARK} roughness={0.9} flatShading />
-    </mesh>
+    <group position={[0, 0.02, 0.95]}>
+      <Feathers shapes={shapes} color={FEATHER_DARK} lift={0} />
+      {/* upper tail coverts, covering where the fan meets the body */}
+      <mesh position={[0, 0.06, -0.08]} rotation={FLAT}>
+        <circleGeometry args={[0.34, 10]} />
+        <meshStandardMaterial color={FEATHER} roughness={0.95} flatShading side={DoubleSide} />
+      </mesh>
+    </group>
   )
 }

@@ -28,8 +28,11 @@ const BASE_SIZE = 4.5
 const GROWTH = 0.26
 const GROWTH_POWER = 0.78
 
-/** Opacity with the bird on the deck. */
-const BASE_OPACITY = 0.46
+/**
+ * Opacity with the bird on the deck. Kept clearly darker than the cloud shadows
+ * it lands among, so the bird's own mark still reads when it crosses one.
+ */
+const BASE_OPACITY = 0.6
 
 export type ShadowLook = { visible: boolean; size: number; opacity: number }
 

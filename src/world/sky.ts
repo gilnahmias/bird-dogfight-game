@@ -26,15 +26,11 @@ export const SUN_DISTANCE = 1500
 
 export const SKY = {
   /** Fed to the atmospheric sky shader. */
-  turbidity: 2.4,
-  rayleigh: 2.6,
-  mieCoefficient: 0.006,
-  mieDirectionalG: 0.82,
   /** Haze the distance fades into. Warmer than the zenith, like real haze. */
-  fog: '#a6c2d8',
+  fog: '#93b4cf',
   /** Light colours. */
   sunLight: '#fff2d6',
-  skyLight: '#bcd8f0',
+  skyLight: '#a8caf0',
   groundLight: '#7a7f63',
 } as const
 

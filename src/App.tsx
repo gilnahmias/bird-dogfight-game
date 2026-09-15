@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
-import { Sky } from '@react-three/drei'
-import { ACESFilmicToneMapping, Group, Vector3 } from 'three'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Canvas } from '@react-three/fiber'
+import { ACESFilmicToneMapping, Vector3 } from 'three'
 import { Bird } from './flight/Bird.tsx'
 import { ChaseCamera } from './flight/ChaseCamera.tsx'
 import { attachInput } from './flight/input.ts'
@@ -14,41 +13,18 @@ import { DevBridge } from './dev/DevBridge.tsx'
 import { departureDirection, findNestSite, launchPoint } from './world/nest.ts'
 import { Nest } from './world/Nest.tsx'
 import { Motes } from './world/Motes.tsx'
-import { Clouds, Sun } from './world/Clouds.tsx'
+import { Clouds, Sun, type CloudPatch } from './world/Clouds.tsx'
+import { SkyDome } from './world/SkyDome.tsx'
+import { CloudShadows } from './world/CloudShadows.tsx'
 import { SKY, SUN_DIRECTION, sunPosition } from './world/sky.ts'
 import { Shadow } from './world/Shadow.tsx'
 import { findWaterfalls } from './world/waterfalls.ts'
+import { findTarns } from './world/tarns.ts'
+import { Tarns } from './world/Tarns.tsx'
 import { Waterfalls } from './world/Waterfalls.tsx'
 import { T, WORLD } from './game/constants.ts'
 
 const SEED = 'pine-ridge'
-
-/**
- * The sky is a box of fixed size sitting at the origin, so it has to be carried
- * along with the camera - otherwise it is simply left behind after the first few
- * hundred metres and the horizon turns black. It also has to fit inside the far
- * plane, or it is clipped away entirely.
- */
-function FollowingSky() {
-  const group = useRef<Group>(null)
-  useFrame((state) => {
-    group.current?.position.copy(state.camera.position)
-  })
-  const distance = (WORLD.fogFar + 400) * 0.8
-  return (
-    <group ref={group}>
-      <Sky
-        distance={distance}
-        sunPosition={sunPosition()}
-        turbidity={SKY.turbidity}
-        rayleigh={SKY.rayleigh}
-        mieCoefficient={SKY.mieCoefficient}
-        mieDirectionalG={SKY.mieDirectionalG}
-      />
-    </group>
-  )
-}
-
 
 export default function App() {
   useEffect(attachInput, [])
@@ -60,6 +36,11 @@ export default function App() {
     () => findWaterfalls(SEED, site.pos, departureDirection(site.heading)),
     [site],
   )
+  const tarns = useMemo(() => findTarns(SEED, site.pos), [site])
+  // Cloud positions are published upward so their shade can be cast on the ground.
+  const [patches, setPatches] = useState<CloudPatch[]>([])
+  const cloudDrift = useRef(new Vector3())
+  const onPatches = useCallback((next: CloudPatch[]) => setPatches(next), [])
   const bird = useMemo(() => createBird(spawn, site.heading), [spawn, site.heading])
   // A stable handle on the bird's position, for the world to build itself around.
   const target = useMemo(() => ({ current: bird.pos as Vector3 }), [bird])
@@ -71,15 +52,13 @@ export default function App() {
         shadows={false}
         dpr={[1, 1.75]}
         /*
-          The atmospheric sky shader outputs high dynamic range values and
-          expects to be tone mapped. Without this it clips straight to white and
-          the sky has no colour in it at all, at any hour or turbidity - which is
-          exactly what it was doing.
+          Filmic tone mapping keeps the bright end - sun glare on water, sunlit
+          rock against dark forest - from flattening into white.
         */
-        gl={{ toneMapping: ACESFilmicToneMapping, toneMappingExposure: 0.85 }}
+        gl={{ toneMapping: ACESFilmicToneMapping, toneMappingExposure: 0.95 }}
       >
         <fog attach="fog" args={[SKY.fog, WORLD.fogNear, WORLD.fogFar]} />
-        <FollowingSky />
+        <SkyDome />
         <Sun />
         <hemisphereLight args={[SKY.skyLight, SKY.groundLight, 1.15]} />
         {/*
@@ -97,9 +76,11 @@ export default function App() {
         <Water target={target} sun={SUN_DIRECTION} />
         <Scatter target={target} seed={SEED} />
         <Nest site={site} />
+        <Tarns tarns={tarns} />
         <Waterfalls falls={falls} />
         <Motes target={target} seed={SEED} />
-        <Clouds target={target} seed={SEED} />
+        <Clouds target={target} seed={SEED} onPatches={onPatches} driftOut={cloudDrift} />
+        <CloudShadows patches={patches} seed={SEED} drift={cloudDrift} />
 
         <Shadow state={bird} seed={SEED} />
         <Bird state={bird} seed={SEED} spawn={spawn} heading={site.heading} />

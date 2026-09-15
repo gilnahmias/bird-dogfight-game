@@ -80,7 +80,7 @@ export function Shadow({ state, seed }: { state: BirdState; seed: string }) {
         a fixed height offset does.
       */}
       <meshBasicMaterial
-        color="#101c26"
+        color="#0b1219"
         transparent
         opacity={0.4}
         depthWrite={false}

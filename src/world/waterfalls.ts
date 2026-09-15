@@ -7,7 +7,8 @@
  * so this looks for the places they coincide rather than inventing anything.
  */
 import { Vector3 } from 'three'
-import { heightAt, meshHeightAt, riverAt } from './terrain.ts'
+import { meshHeightAt } from './terrain.ts'
+import { findTarns, type Tarn } from './tarns.ts'
 import { WORLD } from '../game/constants.ts'
 
 export type Waterfall = {
@@ -30,66 +31,85 @@ export type Waterfall = {
   path: Vector3[]
 }
 
-const SEARCH_RADIUS = 2600
-const STEP = 56
-/** Look this far downhill for the landing. */
-const RUNOUT = 190
 /** Step size when walking the fall line out from the lip. */
 const STEP_OUT = 8
-/** Falls closer together than this are the same fall. */
-const MIN_SEPARATION = 170
-export const MIN_DROP = 14
-const MIN_RIVER = 0.28
-
-/** How many segments the sheet is built from. */
-const PATH_STEPS = 10
+/** Most steps the fall line is followed for. */
+const MAX_STEPS = 28
+/** A spill shorter than this is a trickle, not a waterfall. */
+export const MIN_DROP = 11
 
 /**
  * The line the water takes down the face: hugging the rock, never climbing, and
  * standing just clear of the surface so it does not z-fight with it.
  */
-function fallPath(
-  top: Vector3,
-  base: Vector3,
-  dirX: number,
-  dirZ: number,
-  run: number,
+/**
+ * Trace the line the water takes from a lip, marching downhill.
+ *
+ * At each step it looks around the current heading and takes the steepest way
+ * down, rather than running along a fixed bearing. A straight bearing is what an
+ * earlier version used, and it buried the sheet inside the hill wherever the
+ * ground rose again along it - water cannot flow uphill, so the sheet would hold
+ * its height while the terrain climbed over it.
+ */
+function traceFallLine(
+  startX: number,
+  startZ: number,
+  lipY: number,
+  initialHeading: number,
   seed: string,
-): Vector3[] {
+): { path: Vector3[]; base: Vector3; dir: Vector3 } | null {
   /** Stand off the rock face by this much, so the sheet does not z-fight it. */
   const CLEARANCE = 0.6
 
-  const path: Vector3[] = []
-  let y = top.y
-  for (let i = 0; i <= PATH_STEPS; i++) {
-    const t = i / PATH_STEPS
-    const x = top.x + dirX * run * t
-    const z = top.z + dirZ * run * t
-    // Against the surface that is DRAWN, since that is what the water is seen
-    // to run over. The height field sits above it on sharp crests.
-    const ground = Math.max(meshHeightAt(x, z, seed, WORLD.lodSegments[0]), base.y)
-    // Follow the rock where it falls away, but never flow back uphill. The
-    // clearance is applied to every point including the lip, so that adding it
-    // cannot itself make one point higher than the one before.
-    y = Math.min(y, ground)
-    path.push(new Vector3(x, y + CLEARANCE, z))
-  }
-  return path
-}
+  const ground = (x: number, z: number) =>
+    Math.max(meshHeightAt(x, z, seed, WORLD.lodSegments[0]), WORLD.waterLevel)
 
-/** Steepest downhill direction at a point, and how far the ground falls. */
-function downhill(x: number, z: number, h: number, seed: string) {
-  let best = 0
-  let angle = 0
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2
-    const drop = h - heightAt(x + Math.cos(a) * 30, z + Math.sin(a) * 30, seed)
-    if (drop > best) {
-      best = drop
-      angle = a
+  const path: Vector3[] = [new Vector3(startX, lipY + CLEARANCE, startZ)]
+  let x = startX
+  let z = startZ
+  let y = lipY
+  // Always starts pointing away from the pool. An unconstrained first step finds
+  // the tarn floor - lower than its own rim - and the fall runs back into the
+  // lake it just left.
+  let heading = initialHeading
+  let firstStep: Vector3 | null = null
+
+  for (let i = 0; i < MAX_STEPS; i++) {
+    // Search a fan around the current heading, so the line curves with the gully
+    // instead of doubling back.
+    let bestDrop = -Infinity
+    let bestAngle = heading
+    const span = Math.PI * 0.42
+    const from = heading - span
+    const to = heading + span
+    for (let k = 0; k <= 12; k++) {
+      const a = from + ((to - from) * k) / 12
+      const nx = x + Math.cos(a) * STEP_OUT
+      const nz = z + Math.sin(a) * STEP_OUT
+      const drop = y - ground(nx, nz)
+      if (drop > bestDrop) {
+        bestDrop = drop
+        bestAngle = a
+      }
     }
+
+    // Only ever take a step that goes down. Taking a flat or rising step and
+    // then clamping the height is what left the sheet buried inside the hill:
+    // the water held its level while the ground climbed over it.
+    if (bestDrop <= 0.05) break
+
+    x += Math.cos(bestAngle) * STEP_OUT
+    z += Math.sin(bestAngle) * STEP_OUT
+    heading = bestAngle
+    y = ground(x, z)
+    path.push(new Vector3(x, y + CLEARANCE, z))
+
+    if (!firstStep) firstStep = new Vector3(Math.cos(bestAngle), 0, Math.sin(bestAngle))
+    if (y <= WORLD.waterLevel + 0.01) break
   }
-  return { drop: best, angle }
+
+  if (path.length < 3 || !firstStep) return null
+  return { path, base: path[path.length - 1].clone(), dir: firstStep }
 }
 
 /**
@@ -114,86 +134,55 @@ function viewingCost(w: Waterfall, from: Vector3, heading: Vector3 | null): numb
   return off * 2.2 + (along < 0 ? -along * 3 : along * 0.25)
 }
 
+/**
+ * Build the fall that spills out of a tarn, or null if the ground below its
+ * outlet does not drop far enough to make one.
+ */
+function fallFromTarn(tarn: Tarn, seed: string): Waterfall | null {
+  // The crest of the rim, not the pool surface: water goes OVER the lip, and a
+  // sheet starting at the surface begins buried under the rim in front of it.
+  const lip = tarn.outletGround
+
+  const traced = traceFallLine(
+    tarn.outlet.x,
+    tarn.outlet.z,
+    lip,
+    Math.atan2(tarn.outflow.z, tarn.outflow.x),
+    seed,
+  )
+  if (!traced) return null
+
+  const drop = lip - traced.base.y
+  if (drop < MIN_DROP) return null
+
+  return {
+    top: new Vector3(tarn.outlet.x, lip, tarn.outlet.z),
+    base: traced.base,
+    dir: traced.dir,
+    // A bigger pool spills a wider fall.
+    width: 6 + tarn.radius * 0.28,
+    path: traced.path,
+  }
+}
+
+/**
+ * Waterfalls, each one the outflow of a mountain tarn.
+ *
+ * They used to be sited wherever a river channel happened to cross a steep
+ * slope, which put them halfway down bare hillsides with nothing above them -
+ * water appearing out of the rock for no reason. A fall now begins where water
+ * visibly is: at the lip of a pool that the player can fly up to and look into.
+ */
 export function findWaterfalls(
   seed: string,
   centre: Vector3,
   heading: Vector3 | null = null,
-  max = 11,
+  max = 8,
 ): Waterfall[] {
-  const candidates: Waterfall[] = []
+  const candidates = findTarns(seed, centre, 22)
+    .map((tarn) => fallFromTarn(tarn, seed))
+    .filter((w): w is Waterfall => w !== null)
 
-  for (let dz = -SEARCH_RADIUS; dz <= SEARCH_RADIUS; dz += STEP) {
-    for (let dx = -SEARCH_RADIUS; dx <= SEARCH_RADIUS; dx += STEP) {
-      const x = centre.x + dx
-      const z = centre.z + dz
-
-      // Cheapest test first: is there a river here at all?
-      if (riverAt(x, z, seed) < MIN_RIVER) continue
-
-      const h = heightAt(x, z, seed)
-      if (h < WORLD.waterLevel + 12 || h > 210) continue
-
-      const { drop, angle } = downhill(x, z, h, seed)
-      if (drop < 9) continue // needs to be a real edge, not a slope
-
-      // Walk the fall line out from the lip until the ground stops dropping -
-      // that is the foot of the cliff, and where the water lands.
-      const dirX = Math.cos(angle)
-      const dirZ = Math.sin(angle)
-      const lip = meshHeightAt(x, z, seed, WORLD.lodSegments[0])
-      let run = 0
-      let landingY = lip
-      let previous = lip
-      for (let d = STEP_OUT; d <= RUNOUT; d += STEP_OUT) {
-        const g = heightAt(x + dirX * d, z + dirZ * d, seed)
-        if (g < WORLD.waterLevel) {
-          // Reached open water: the fall ends at the surface.
-          run = d
-          landingY = WORLD.waterLevel
-          break
-        }
-        // The cliff has bottomed out and the ground is running level or rising.
-        if (previous - g < 1.2) break
-        previous = g
-        run = d
-        landingY = g
-      }
-      if (run === 0) continue
-
-      const top = new Vector3(x, lip, z)
-      const bx = x + dirX * run
-      const bz = z + dirZ * run
-      // The foot sits on the drawn surface too, or the last segment of the sheet
-      // disappears into the bank.
-      const footY =
-        landingY <= WORLD.waterLevel
-          ? WORLD.waterLevel
-          : Math.max(WORLD.waterLevel, meshHeightAt(bx, bz, seed, WORLD.lodSegments[0]))
-      const base = new Vector3(bx, footY, bz)
-      // Judge the drop against the foot that actually gets drawn, not against an
-      // intermediate sample, or short falls slip through.
-      if (lip - footY < MIN_DROP) continue
-      candidates.push({
-        top,
-        base,
-        dir: new Vector3(dirX, 0, dirZ).normalize(),
-        // Bigger rivers make wider falls.
-        width: 7 + riverAt(x, z, seed) * 13,
-        path: fallPath(top, base, dirX, dirZ, run, seed),
-      })
-    }
-  }
-
-  // Best-placed first, so the falls that get kept are the ones the player will
-  // actually fly past rather than whichever the scan happened to reach first.
   candidates.sort((a, b) => viewingCost(a, centre, heading) - viewingCost(b, centre, heading))
-
-  // One fall per river, not twenty down the same one.
-  const found: Waterfall[] = []
-  for (const w of candidates) {
-    if (found.length >= max) break
-    if (found.some((k) => Math.hypot(k.top.x - w.top.x, k.top.z - w.top.z) < MIN_SEPARATION)) continue
-    found.push(w)
-  }
-  return found
+  return candidates.slice(0, max)
 }

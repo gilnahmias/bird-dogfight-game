@@ -240,22 +240,82 @@ test('arriving hard still kills, but brushing the ground at speed does not', () 
   assert.ok(Math.abs(skimming.vel.x) < 18, 'but it should cost speed')
 })
 
-test('water can be skimmed at speed but drowns a bird that settles onto it', () => {
+test('water costs speed but never kills, however slowly the bird arrives', () => {
   const fast = createBird(new Vector3(0, 0.5, 0))
   fast.vel.set(20, -2, 0)
   fast.airspeed = 20
   assert.equal(resolveGround(fast, 0, true, 1 / 60), 'splash')
   assert.ok(!fast.dead, 'a fast skim is survivable - the hunting loop depends on it')
+  assert.ok(Math.abs(fast.vel.x) < 20, 'the water should take speed')
 
+  // Fishing IS arriving slowly with the feet down. Drowning here killed the one
+  // manoeuvre the water exists for.
   const slow = createBird(new Vector3(0, 0.5, 0))
   slow.vel.set(3, -1, 0)
   slow.airspeed = 3
-  assert.equal(resolveGround(slow, 0, true, 1 / 60), 'drown')
-  assert.ok(slow.dead, 'a raptor cannot perch on water')
+  assert.equal(resolveGround(slow, 0, true, 1 / 60), 'splash')
+  assert.ok(!slow.dead, 'water must never be fatal')
+})
+
+test('a bird that lands in the water hauls itself back out', () => {
+  // The guard against the trade we made for not drowning: a bird that can sit on
+  // the water without dying must not be able to get STUCK there either.
+  const b = createBird(new Vector3(0, 0.5, 0))
+  b.vel.set(4, -3, 0)
+  b.quat = new Quaternion()
+  const dt = 1 / 120
+  let touches = 0
+  let touchesLately = 0
+  for (let i = 0; i < 120 * 6; i++) {
+    step(b, NEUTRAL, CALM, dt)
+    if (resolveGround(b, 0, true, dt) === 'splash') {
+      touches++
+      if (i > 120 * 5) touchesLately++
+    }
+  }
+  assert.ok(touches > 0, 'the bird never actually touched the water, so this proves nothing')
+  assert.ok(!b.dead, 'the water killed a bird it is not allowed to kill')
+  assert.equal(touchesLately, 0, 'still skidding across the water six seconds later')
+  assert.ok(
+    b.airspeed > T.cruiseSpeed * 0.7,
+    `dragged itself out at only ${b.airspeed.toFixed(1)} m/s - that is stuck, not flying`,
+  )
 })
 
 test('clear air overhead is left alone', () => {
   const b = createBird(new Vector3(0, 100, 0))
   assert.equal(resolveGround(b, 10, false, 1 / 60), 'clear')
   assert.ok(!b.dead)
+})
+
+test('the leap gets the bird off its perch, even with the wind against it', () => {
+  // The bug this guards: a perched bird meets the air from BEHIND, which is an
+  // angle of attack of about 180 degrees, and the lift that falls out of that
+  // held the bird on its branch for the whole launch. It left the nest at under
+  // 5 m/s and flew into the hillside below its own tree.
+  const b = createBird(new Vector3(0, 100, 0), 0, true)
+  const gusty = { wind: new Vector3(0, 0, 7) }
+  const dt = 1 / 120
+  for (let i = 0; i < 1.2 / dt; i++) {
+    step(b, BRAKE, gusty, dt)
+    resolveGround(b, 98.8, false, dt)
+  }
+  assert.ok(!b.perched, 'still standing on the perch a second after the leap')
+  assert.ok(b.pos.y > 101, `only got ${(b.pos.y - 100).toFixed(1)}m off the perch`)
+  assert.ok(
+    Math.hypot(b.vel.x, b.vel.z) > 10,
+    `left the perch at ${Math.hypot(b.vel.x, b.vel.z).toFixed(1)} m/s over the ground - it needs about 22 to fly`,
+  )
+})
+
+test('wind cannot work on the wings of a bird that is gripping a branch', () => {
+  const perched = createBird(new Vector3(0, 100, 0), 0, true)
+  const gale = { wind: new Vector3(0, 0, 14) }
+  const dt = 1 / 120
+  for (let i = 0; i < 2 / dt; i++) {
+    step(perched, NEUTRAL, gale, dt)
+    resolveGround(perched, 98.8, false, dt)
+  }
+  assert.ok(perched.perched, 'the wind blew the bird out of its own nest')
+  assert.ok(Math.abs(perched.pos.y - 100) < 0.01, 'the bird was lifted off its perch by the wind')
 })

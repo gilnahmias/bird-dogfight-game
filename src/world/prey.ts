@@ -10,7 +10,7 @@
  * a scene: what may be caught, what it costs to carry, and what it is worth.
  */
 import { Vector3 } from 'three'
-import { heightAt, jitter, meshHeightAt, moistureAt, slopeAt } from './terrain.ts'
+import { heightAt, jitter, meshHeightAt, moistureAt, slopeAt, tarnPoolAt } from './terrain.ts'
 import { WORLD } from '../game/constants.ts'
 
 export type PreyKind = 'mouse' | 'fish' | 'rabbit'
@@ -59,6 +59,11 @@ export type Prey = {
 export function siteFor(x: number, z: number, seed: string): PreyKind | null {
   const ground = heightAt(x, z, seed)
 
+  // Mountain tarns hold fish too. Without this the lakes the world goes to the
+  // trouble of carving are scenery, and every fishing pass happens at sea level.
+  const pool = tarnPoolAt(x, z, seed)
+  if (pool !== null && pool - ground > 2) return 'fish'
+
   // Fish sit at the surface of open water, not on a puddle edge.
   if (ground < WORLD.waterLevel - 3) return 'fish'
   if (ground < WORLD.waterLevel + 1.5) return null // the shoreline itself: nothing
@@ -73,7 +78,7 @@ export function siteFor(x: number, z: number, seed: string): PreyKind | null {
 
 /** The surface a piece of prey rests on - the lake top, or the drawn ground. */
 export function surfaceFor(kind: PreyKind, x: number, z: number, seed: string): number {
-  if (kind === 'fish') return WORLD.waterLevel
+  if (kind === 'fish') return tarnPoolAt(x, z, seed) ?? WORLD.waterLevel
   return meshHeightAt(x, z, seed, WORLD.lodSegments[0])
 }
 

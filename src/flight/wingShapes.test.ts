@@ -11,7 +11,6 @@ import {
   primaries,
   secondaries,
   tailFeathers,
-  WRIST_X,
 } from './wingShapes.ts'
 
 /** Outline of a shape as plain points. */
@@ -54,14 +53,16 @@ const rootOf = (shape: Shape) => outline(shape)[0]
 /** Every row, with the panel it grows from, in that panel's own coordinates. */
 function rows() {
   const arm = outline(armShape())
-  // The hand is drawn from the wrist, which sits at ELBOW_X + WRIST_X along the wing.
+  // Every row is drawn in the frame of the panel it grows from, so no row needs
+  // shifting to be compared against its panel - and nothing can be pivoted away
+  // from that panel, because each panel and its feathers move as one group.
   const hand = outline(handShape())
   return [
-    { name: 'secondaries', feathers: secondaries(), panel: arm, shift: 0 },
-    { name: 'greater coverts', feathers: greaterCoverts(), panel: arm, shift: 0 },
-    { name: 'lesser coverts', feathers: lesserCoverts(), panel: arm, shift: 0 },
-    { name: 'primaries', feathers: primaries(), panel: hand, shift: WRIST_X },
-    { name: 'alula', feathers: alula(), panel: hand, shift: WRIST_X },
+    { name: 'secondaries', feathers: secondaries(), panel: arm },
+    { name: 'greater coverts', feathers: greaterCoverts(), panel: arm },
+    { name: 'lesser coverts', feathers: lesserCoverts(), panel: arm },
+    { name: 'primaries', feathers: primaries(), panel: hand },
+    { name: 'alula', feathers: alula(), panel: hand },
   ]
 }
 
@@ -69,12 +70,9 @@ test('every feather is rooted in the part of the wing it grows from', () => {
   // The failure this guards against is feathers hanging in the air beside the
   // bird - which is what you get the moment a row is nudged outboard of the
   // panel it belongs to.
-  for (const { name, feathers, panel, shift } of rows()) {
+  for (const { name, feathers, panel } of rows()) {
     feathers.forEach((feather, i) => {
-      const root = rootOf(feather)
-      // Feather coordinates are relative to their own group; shift into the
-      // panel's frame before asking whether they touch it.
-      const inPanel = { x: root.x + shift, y: root.y }
+      const inPanel = rootOf(feather)
       const attached = inside(inPanel, panel) || distanceTo(inPanel, panel) < 0.35
       assert.ok(
         attached,

@@ -1,6 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { apparentSize, MAX_HEIGHT, shadowFor } from './shadow.ts'
+import {
+  apparentSize,
+  blurFor,
+  castOnto,
+  castToGround,
+  litness,
+  MAX_HEIGHT,
+  shadowFor,
+} from './shadow.ts'
 
 test('the shadow is visible from the deck up to the fade height', () => {
   assert.ok(shadowFor(0).visible)
@@ -80,4 +88,119 @@ test('the shadow stays readable across the altitudes the bird actually flies', (
 test('the shadow fades out before it stops being drawn, with no visible pop', () => {
   const justInside = shadowFor(MAX_HEIGHT - 5)
   assert.ok(justInside.opacity < 0.05, `shadow pops out at ${justInside.opacity.toFixed(3)} opacity`)
+})
+
+test('the edge softens with height, and is crisp on touchdown', () => {
+  assert.ok(blurFor(0) < 0.08, `a shadow on the deck must be sharp, got ${blurFor(0).toFixed(2)}`)
+  let previous = -1
+  for (const agl of [0, 10, 40, 100, 200, 400]) {
+    const blur = blurFor(agl)
+    assert.ok(blur > previous, `softness must grow with height, stalled at ${agl}m`)
+    assert.ok(blur < 0.5, `a blur of ${blur.toFixed(2)} leaves no shape at all`)
+    previous = blur
+  }
+})
+
+// --- Smearing on the surface ----------------------------------------------
+
+const SUN = { x: -0.42, y: 0.46, z: -0.78 }
+const light = { x: -SUN.x, y: -SUN.y, z: -SUN.z }
+const out = { x: 0, y: 0, z: 0 }
+const lengthOf = (v: { x: number; y: number; z: number }) => Math.hypot(v.x, v.y, v.z)
+
+test('flat ground takes the outline undistorted, however low the sun', () => {
+  // Parallel light casting a flat shape onto a parallel plane changes nothing.
+  // Stretching here would mean the shadow is wrong everywhere it matters most,
+  // which is over the open ground the bird cruises across.
+  const flat = { x: 0, y: 1, z: 0 }
+  for (const axis of [
+    { x: 1, y: 0, z: 0 },
+    { x: 0, y: 0, z: 1 },
+    { x: 0.7, y: 0, z: -0.7 },
+  ]) {
+    castOnto(axis, flat, light, out)
+    assert.ok(
+      Math.abs(lengthOf(out) - lengthOf(axis)) < 1e-9,
+      `a horizontal axis was stretched to ${lengthOf(out).toFixed(3)} on flat ground`,
+    )
+  }
+})
+
+test('a slope stretches the outline along it - the smear', () => {
+  // A mountainside is not parallel to the bird, so the same outline lands longer
+  // on it. This is the difference between a shadow and a decal.
+  const steep = { x: 0.6, y: 0.8, z: 0 }
+  const span = { x: 1, y: 0, z: 0 }
+  castOnto(span, steep, light, out)
+  assert.ok(lengthOf(out) > 1.15, `a cliff barely smeared the shadow: ${lengthOf(out).toFixed(2)}`)
+  // And it lands ON the slope, not floating off it.
+  const offPlane = out.x * steep.x + out.y * steep.y + out.z * steep.z
+  assert.ok(Math.abs(offPlane) < 1e-9, `the smeared axis left the surface by ${offPlane.toFixed(4)}`)
+})
+
+test('a slope turned edge-on to the sun cannot stretch without limit', () => {
+  // The honest answer is an infinitely long shadow. Drawn, it would stripe the
+  // whole hillside, so the stretch is capped.
+  const edgeOn = { x: light.x, y: light.y, z: light.z } // normal facing into the light
+  const grazing = { x: -light.y, y: light.x, z: 0 }
+  const scale = Math.hypot(grazing.x, grazing.y, grazing.z)
+  castOnto(grazing, edgeOn, light, out)
+  assert.ok(lengthOf(out) < scale * 6, `stretched to ${(lengthOf(out) / scale).toFixed(1)}x - a stripe`)
+})
+
+test('projecting a vector onto itself still respects the stretch limit', () => {
+  // The caller reuses one scratch vector for input and output. Measuring the cap
+  // after writing to it measures the stretched vector against itself, so nothing
+  // is ever capped - which put a 1.5km shadow across a hillside.
+  const edgeOn = { x: light.x, y: light.y, z: light.z }
+  const v = { x: -light.y, y: light.x, z: 0 }
+  const before = lengthOf(v)
+  castOnto(v, edgeOn, light, v)
+  assert.ok(lengthOf(v) < before * 6, `stretched to ${(lengthOf(v) / before).toFixed(0)}x its own size`)
+})
+
+test('a slope turned away from the sun cannot hold a full-strength shadow', () => {
+  const facingSun = { x: -light.x, y: -light.y, z: -light.z }
+  assert.ok(litness(facingSun, light) > 0.9, 'a sunlit face should take the whole shadow')
+  const edgeOn = { x: -light.y, y: light.x, z: 0 }
+  const shaded = litness(edgeOn, light)
+  assert.ok(shaded < 0.45, `an unlit face should take a weaker shadow, got ${shaded.toFixed(2)}`)
+  assert.ok(
+    shaded > 0.2,
+    'but it must not switch off: half the ground in these mountains is in shade, ' +
+      'and the shadow is the altitude read-out',
+  )
+  const flat = { x: 0, y: 1, z: 0 }
+  assert.ok(litness(flat, light) > 0.5, 'flat ground under a low sun still takes a shadow')
+})
+
+// --- Finding the ground ----------------------------------------------------
+
+const CAST = { x: 1, z: 0 }
+const REACH = 2
+
+test('the ray lands on the ground it is thrown at, not the ground below', () => {
+  const flat = () => 0
+  const hit = castToGround({ x: 0, y: 100, z: 0 }, CAST, REACH, 0, flat)
+  assert.equal(hit.groundY, 0)
+  assert.ok(Math.abs(hit.x - 200) < 1e-9, `landed at ${hit.x}, not 200m down-sun`)
+})
+
+test('a slope down-sun is followed, not ignored', () => {
+  // Ground falling away as you go down-sun: the landing point must run further
+  // out than the first guess, which is what the iteration is for.
+  const slope = (x: number) => -x * 0.1
+  const hit = castToGround({ x: 0, y: 100, z: 0 }, CAST, REACH, 0, slope)
+  assert.ok(hit.x > 200, `a falling slope should push the landing point past 200m, got ${hit.x.toFixed(0)}`)
+  assert.ok(Math.abs(hit.groundY - slope(hit.x)) < 1e-9, 'the landing point must sit ON the ground')
+})
+
+test('a remembered ground above the bird does not freeze the shadow', () => {
+  // The bug: fly off a ridge into a valley and last frame's answer is ABOVE you.
+  // The solve then saw a negative drop, gave up, and returned the stale answer
+  // every frame after - the shadow disappeared and never came back.
+  const valley = () => 20
+  const hit = castToGround({ x: 0, y: 150, z: 0 }, CAST, REACH, 400, valley)
+  assert.equal(hit.groundY, 20, 'the stale seed was handed straight back')
+  assert.ok(hit.x > 0, 'the landing point never left the bird')
 })

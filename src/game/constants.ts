@@ -53,6 +53,17 @@ export const TUNING = {
    * well under the bird's own weight, so without this the player could land and
    * then never leave - perched forever, alive, with nothing to do.
    */
+  /**
+   * Speed of the leap itself, in m/s, set straight into the velocity.
+   *
+   * A leap is an impulse, not a slow shove. Pushed only with force, the launch
+   * was eaten by the wing: a bird standing in a seven metre a second wind meets
+   * the air from behind, which is an angle of attack of about 180 degrees, and
+   * the lift that comes out of that held it on the branch for the whole of the
+   * launch. Measured, it left the nest at 4.8 m/s instead of 20 and flew into
+   * the hillside below its own tree five seconds into the run.
+   */
+  launchSpeed: 15,
   launchThrust: 78,
   /**
    * Seconds the leap keeps pushing once it starts.
@@ -143,9 +154,17 @@ export const TUNING = {
   // and beat its way back off the deck, so landing is a move rather than a
   // failure. Arriving fast is still fatal.
   waterDragFactor: 0.55, // speed retained per second while dragging through water
-  // Skim a lake fast and you get away with it. Settle onto it and you drown -
-  // which is what keeps a low pass over water a real decision.
-  drownSpeed: 9.0, // m/s
+  /**
+   * Water never kills. Hitting it costs speed and throws spray, and then the bird
+   * beats its way back off the surface.
+   *
+   * Drowning a bird that settled onto a lake sounded right and played terribly:
+   * fishing IS arriving slowly at the water with the feet down, so the mechanic
+   * the water exists for was the one thing that reliably drowned you.
+   */
+  waterEscape: 0.55, // seconds of hauling off the surface after a touch
+  waterEscapeThrust: 46, // N of that heave - enough to climb out, not to skip
+
   /** Slow enough, and sinking gently enough, to put the feet down and perch. */
   landingSpeed: 7.5, // m/s
   landingSink: 6.0, // m/s

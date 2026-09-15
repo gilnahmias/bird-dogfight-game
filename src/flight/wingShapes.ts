@@ -22,9 +22,18 @@
  */
 import { Shape } from 'three'
 
-/** Where the elbow sits along the wing, and the wrist beyond it. */
+/** Where the elbow sits along the wing. The hand runs outward from there. */
 export const ELBOW_X = 2.0
-export const WRIST_X = 1.9
+
+/**
+ * The leading edge of the hand, in the hand's own chord coordinate.
+ *
+ * The hand twists about this line rather than about its middle. A manus that
+ * feathers about mid-chord tears BOTH its edges away from the arm it hangs off;
+ * pivoting on the leading edge leaves that edge welded to the arm and lifts only
+ * the trailing edge, which is also what a real wing does.
+ */
+export const HAND_LEADING = -0.74
 
 /** A single feather outline, pointing along +y, tapering to a point. */
 export function featherOutline(length: number, width: number, sweep: number): Shape {
@@ -170,11 +179,11 @@ export const lesserCoverts = (): Shape[] =>
 export const primaries = (): Shape[] =>
   row({
     count: 7,
-    // Rooted back ON the hand, not out past the end of it. The wrist group's
-    // origin sits at the tip of the hand, so a positive span here puts the quill
-    // in mid-air beyond the wing.
-    spanFrom: -0.62,
-    spanTo: -0.02,
+    // In the HAND's own frame, spread along its outer half. The whole manus -
+    // spar and feathers together - is one rigid piece, so no joint can pivot
+    // between a quill and the bone it grows out of.
+    spanFrom: 1.28,
+    spanTo: 1.88,
     chordFrom: -0.1,
     chordTo: 0.12,
     lengthFrom: 1.62,
@@ -189,8 +198,8 @@ export const primaries = (): Shape[] =>
 export const alula = (): Shape[] =>
   row({
     count: 3,
-    spanFrom: -0.54,
-    spanTo: -0.26,
+    spanFrom: 1.36,
+    spanTo: 1.64,
     chordFrom: -0.5,
     chordTo: -0.46,
     lengthFrom: 0.42,

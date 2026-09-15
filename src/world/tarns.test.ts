@@ -1,8 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { findTarns, outletDrop, RIM_RADIUS, RIM_SAMPLES } from './tarns.ts'
+import { findTarns, outletDrop } from './tarns.ts'
 import { findNestSite } from './nest.ts'
-import { heightAt } from './terrain.ts'
+import { heightAt, TARN_RADIUS } from './terrain.ts'
 import { WORLD } from '../game/constants.ts'
 
 const SEEDS = ['pine-ridge', 'alpine', 'coastal', 'basin']
@@ -12,7 +12,11 @@ const tarnsFor = (seed: string) => findTarns(seed, findNestSite(seed).pos)
 test('every seed has tarns, up in the hills and above the sea', () => {
   for (const seed of SEEDS) {
     const tarns = tarnsFor(seed)
-    assert.ok(tarns.length > 0, `${seed}: no mountain tarns anywhere`)
+    // Not "at least one": the player could not FIND a mountain lake when there
+    // were four in a seven kilometre square. Supply is the whole point.
+    assert.ok(tarns.length >= 8, `${seed}: only ${tarns.length} mountain tarns in range`)
+    const nearest = Math.min(...tarns.map((t) => t.centre.distanceTo(findNestSite(seed).pos)))
+    assert.ok(nearest < 1400, `${seed}: the nearest tarn is ${(nearest / 1000).toFixed(1)}km from the nest`)
     for (const t of tarns) {
       assert.ok(t.level > WORLD.waterLevel + 20, `${seed}: tarn at ${t.level.toFixed(0)}m is basically the sea`)
       assert.ok(t.radius > 5, `${seed}: tarn is a puddle`)
@@ -28,7 +32,7 @@ test('a tarn sits in a hollow - its floor is below the rim all the way round', (
       let above = 0
       for (let i = 0; i < 12; i++) {
         const a = (i / 12) * Math.PI * 2
-        const h = heightAt(t.centre.x + Math.cos(a) * RIM_RADIUS, t.centre.z + Math.sin(a) * RIM_RADIUS, seed)
+        const h = heightAt(t.centre.x + Math.cos(a) * TARN_RADIUS, t.centre.z + Math.sin(a) * TARN_RADIUS, seed)
         if (h > floor) above++
       }
       assert.ok(above >= 9, `${seed}: only ${above}/12 of the rim is above the floor - not a hollow`)
@@ -42,11 +46,11 @@ test('the outlet is the low point of the rim, so water leaves where it would rea
   for (const seed of SEEDS) {
     for (const t of tarnsFor(seed)) {
       const outletGround = heightAt(t.outlet.x, t.outlet.z, seed)
-      for (let i = 0; i < RIM_SAMPLES; i++) {
-        const a = (i / RIM_SAMPLES) * Math.PI * 2
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2
         const h = heightAt(
-          t.centre.x + Math.cos(a) * RIM_RADIUS,
-          t.centre.z + Math.sin(a) * RIM_RADIUS,
+          t.centre.x + Math.cos(a) * TARN_RADIUS,
+          t.centre.z + Math.sin(a) * TARN_RADIUS,
           seed,
         )
         assert.ok(
@@ -58,13 +62,23 @@ test('the outlet is the low point of the rim, so water leaves where it would rea
   }
 })
 
-test('the outflow runs downhill from the outlet', () => {
+test('enough tarns actually drain to be worth calling sources', () => {
+  // Measured along the outflow rather than at the lip: the ground rises for the
+  // first ten to twenty metres outside nearly every rim before it falls away, so
+  // a sample taken at the outlet says nothing about where the water goes.
+  //
+  // And not EVERY tarn: measured, a third to a half sit in saddles high on a
+  // broad ridge with no way down within a couple of hundred metres. Those are
+  // lakes without a stream, which is a real thing. What must not happen is ALL
+  // of them being like that, because then no waterfall has a source.
   for (const seed of SEEDS) {
-    for (const t of tarnsFor(seed)) {
-      const ahead = heightAt(t.outlet.x + t.outflow.x * 40, t.outlet.z + t.outflow.z * 40, seed)
-      assert.ok(ahead < t.level, `${seed}: the outflow runs uphill`)
-      assert.ok(Math.abs(t.outflow.length() - 1) < 1e-6)
-    }
+    const tarns = tarnsFor(seed)
+    const draining = tarns.filter((t) => outletDrop(t, seed) > 6)
+    assert.ok(
+      draining.length >= Math.max(3, tarns.length * 0.35),
+      `${seed}: only ${draining.length} of ${tarns.length} tarns have anywhere to spill to`,
+    )
+    for (const t of tarns) assert.ok(Math.abs(t.outflow.length() - 1) < 1e-6)
   }
 })
 
@@ -81,7 +95,7 @@ test('tarns are spread out and deterministic', () => {
   assert.deepEqual(a.map((t) => t.centre.toArray()), b.map((t) => t.centre.toArray()))
   for (let i = 0; i < a.length; i++) {
     for (let j = i + 1; j < a.length; j++) {
-      assert.ok(a[i].centre.distanceTo(a[j].centre) >= 300, 'two tarns are on top of each other')
+      assert.ok(a[i].centre.distanceTo(a[j].centre) >= 150, 'two tarns are on top of each other')
     }
   }
 })

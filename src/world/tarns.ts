@@ -6,11 +6,16 @@
  * lip of a tarn does. The tarn's outlet - the lowest point on its rim - is
  * exactly where the water would leave, so that is where the fall begins.
  *
+ * The basins themselves are part of the terrain (see `tarnSite`), so this is a
+ * lookup rather than a search. The previous version hunted the height field for
+ * accidental hollows and found four in a seven kilometre square, none of them
+ * near the player - which is why nobody could find a lake or a waterfall.
+ *
  * The main water plane is a single sheet at sea level and cannot represent a
  * lake at 180m, so each tarn carries its own small surface.
  */
 import { Vector3 } from 'three'
-import { heightAt, meshHeightAt, tarnFieldAt } from './terrain.ts'
+import { heightAt, meshHeightAt, TARN_RADIUS, tarnSitesNear } from './terrain.ts'
 import { WORLD } from '../game/constants.ts'
 
 export type Tarn = {
@@ -28,16 +33,6 @@ export type Tarn = {
 }
 
 const SEARCH_RADIUS = 3400
-const STEP = 64
-/** Tarns belong in the hills, not on the coastal flats. */
-const MIN_HEIGHT = 42
-const MAX_HEIGHT = 245
-/** The rim is sampled at this radius from the centre. */
-export const RIM_SAMPLES = 16
-/** Radius the rim is measured at, and so the scale of a tarn. */
-export const RIM_RADIUS = 52
-const MIN_RIM_RISE = 2.2
-const MIN_SEPARATION = 240
 
 /**
  * Steepest way down from the outlet, looking only outward.
@@ -55,7 +50,14 @@ function outwardDescent(x: number, z: number, away: Vector3, seed: string) {
     const dx = Math.cos(a)
     const dz = Math.sin(a)
     if (dx * away.x + dz * away.z < 0.25) continue // heading back into the pool
-    const d = here - heightAt(x + dx * 40, z + dz * 40, seed)
+    // Judged over a few hundred metres rather than the first forty. Outside
+    // nearly every outlet the ground RISES for ten to twenty metres before it
+    // falls away, so the nearest sample alone picks whichever way happens to
+    // hump least and can send the stream the wrong way round the hill.
+    let d = 0
+    for (const at of [40, 90, 150]) {
+      d += here - heightAt(x + dx * at, z + dz * at, seed)
+    }
     if (d > drop) {
       drop = d
       angle = a
@@ -64,91 +66,32 @@ function outwardDescent(x: number, z: number, away: Vector3, seed: string) {
   return { drop, dir: new Vector3(Math.cos(angle), 0, Math.sin(angle)).normalize() }
 }
 
-/**
- * Describe the rim around a candidate hollow: how much it rises, and where its
- * lowest point is - the point water would escape through.
- */
-function rim(x: number, z: number, radius: number, seed: string) {
-  let lowest = Infinity
-  let lowestAngle = 0
-  let total = 0
-  for (let i = 0; i < RIM_SAMPLES; i++) {
-    const a = (i / RIM_SAMPLES) * Math.PI * 2
-    const h = heightAt(x + Math.cos(a) * radius, z + Math.sin(a) * radius, seed)
-    total += h
-    if (h < lowest) {
-      lowest = h
-      lowestAngle = a
-    }
+export function findTarns(seed: string, centre: Vector3, max = 24): Tarn[] {
+  const tarns: Tarn[] = []
+  for (const site of tarnSitesNear(centre.x, centre.z, SEARCH_RADIUS, seed)) {
+    if (tarns.length >= max) break
+    const toRim = new Vector3(Math.cos(site.outletAngle), 0, Math.sin(site.outletAngle))
+    const outlet = new Vector3(
+      site.x + toRim.x * TARN_RADIUS,
+      site.level,
+      site.z + toRim.z * TARN_RADIUS,
+    )
+    const descent = outwardDescent(outlet.x, outlet.z, toRim, seed)
+    tarns.push({
+      centre: new Vector3(site.x, site.level, site.z),
+      level: site.level,
+      // Drawn WIDER than the water actually reaches, and left to be buried by
+      // the ground where the basin climbs above the waterline. A disc cut to the
+      // pool's own size leaves a ring of dry basin showing below the shoreline,
+      // and the lake reads as a sticker laid in a saucer; letting the terrain do
+      // the cutting gives a shoreline that fits the hollow exactly.
+      radius: TARN_RADIUS * 1.04,
+      outlet,
+      outletGround: site.level + 0.4,
+      outflow: descent.drop > 0 ? descent.dir : toRim,
+    })
   }
-  return { lowest, mean: total / RIM_SAMPLES, angle: lowestAngle }
-}
-
-export function findTarns(seed: string, centre: Vector3, max = 20): Tarn[] {
-  const candidates: (Tarn & { score: number })[] = []
-
-  for (let dz = -SEARCH_RADIUS; dz <= SEARCH_RADIUS; dz += STEP) {
-    for (let dx = -SEARCH_RADIUS; dx <= SEARCH_RADIUS; dx += STEP) {
-      const x = centre.x + dx
-      const z = centre.z + dz
-      // Look where the terrain deliberately carved a basin, rather than hunting
-      // for an accidental hollow.
-      const strength = tarnFieldAt(x, z, seed)
-      if (strength < 0.28) continue
-
-      const floor = heightAt(x, z, seed)
-      if (floor < MIN_HEIGHT || floor > MAX_HEIGHT) continue
-
-      // Must be near the middle of the basin, not out on its flank.
-      let isCentre = true
-      for (let i = 0; i < 8 && isCentre; i++) {
-        const a = (i / 8) * Math.PI * 2
-        if (tarnFieldAt(x + Math.cos(a) * STEP, z + Math.sin(a) * STEP, seed) > strength + 0.002) {
-          isCentre = false
-        }
-      }
-      if (!isCentre) continue
-
-      // A hollow: the ground must rise on nearly every side.
-      const radius = RIM_RADIUS
-      const { lowest, mean, angle } = rim(x, z, radius, seed)
-      const rise = mean - floor
-      if (rise < MIN_RIM_RISE) continue
-      // The outlet must still be above the floor, or this is a slope, not a bowl.
-      if (lowest - floor < 1.2) continue
-
-      const level = lowest - 0.4
-      const toRim = new Vector3(Math.cos(angle), 0, Math.sin(angle)).normalize()
-      const outlet = new Vector3(x + toRim.x * radius, level, z + toRim.z * radius)
-
-      // The stream leaves down the steepest line from the outlet, not straight
-      // out from the middle of the pool - past the rim the ground often rises
-      // again, and a radial outflow would run uphill.
-      const descent = outwardDescent(outlet.x, outlet.z, toRim, seed)
-      if (descent.drop < 3) continue
-      const outflow = descent.dir
-
-      candidates.push({
-        centre: new Vector3(x, level, z),
-        level,
-        radius: radius * 0.62,
-        outlet,
-        outletGround: lowest,
-        outflow,
-        score: rise * 2 + strength * 14 + descent.drop * 0.5 - Math.hypot(dx, dz) * 0.004,
-      })
-    }
-  }
-
-  candidates.sort((a, b) => b.score - a.score)
-
-  const kept: Tarn[] = []
-  for (const t of candidates) {
-    if (kept.length >= max) break
-    if (kept.some((k) => k.centre.distanceTo(t.centre) < MIN_SEPARATION)) continue
-    kept.push(t)
-  }
-  return kept
+  return tarns
 }
 
 /**

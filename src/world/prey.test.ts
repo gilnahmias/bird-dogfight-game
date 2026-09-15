@@ -14,7 +14,7 @@ import {
   talonPoint,
   valueOf,
 } from './prey.ts'
-import { heightAt, slopeAt } from './terrain.ts'
+import { heightAt, slopeAt, tarnPoolAt } from './terrain.ts'
 import { findNestSite } from './nest.ts'
 import { T, WORLD } from '../game/constants.ts'
 
@@ -46,8 +46,12 @@ test('fish are on water, land animals are on land they could stand on', () => {
   for (const p of spawnPreyAround(near, SEED, 80, 900)) {
     const ground = heightAt(p.pos.x, p.pos.z, SEED)
     if (p.kind === 'fish') {
-      assert.ok(ground < WORLD.waterLevel, `a fish is on dry land at ${ground.toFixed(0)}m`)
-      assert.equal(p.pos.y, WORLD.waterLevel, 'fish sit at the surface')
+      // The sea, or a mountain tarn - a fish belongs under a water surface,
+      // whichever surface that is.
+      const pool = tarnPoolAt(p.pos.x, p.pos.z, SEED)
+      const surface = pool ?? WORLD.waterLevel
+      assert.ok(ground < surface, `a fish is on dry land at ${ground.toFixed(0)}m`)
+      assert.equal(p.pos.y, surface, 'fish sit at the surface')
     } else {
       assert.ok(ground > WORLD.waterLevel, `a ${p.kind} is underwater`)
       assert.ok(slopeAt(p.pos.x, p.pos.z, SEED) <= 0.34, `a ${p.kind} is on a cliff face`)

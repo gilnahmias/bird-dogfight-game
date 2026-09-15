@@ -46,11 +46,19 @@ export type BirdState = {
   aoa: number
   /** Advances continuously; the wings never stop beating. */
   flapPhase: number
+  /**
+   * Where the wings are in the beat, radians, positive up. Written by the view
+   * after it poses the wing, and read by the shadow so the mark on the ground
+   * flaps with the bird instead of sliding along as a blob.
+   */
+  wingAngle: number
   climbRate: number
   /** True once the bird has settled on the ground under its own control. */
   perched: boolean
   /** Seconds left of the leap that gets a landed bird back into the air. */
   launchTimer: number
+  /** Seconds left of hauling off the water after touching it. */
+  wetTimer: number
   dead: boolean
 }
 
@@ -71,9 +79,11 @@ export function createBird(pos: Vector3, heading = 0, perched = false): BirdStat
     airspeed: perched ? 0 : T.cruiseSpeed,
     aoa: 0,
     flapPhase: 0,
+    wingAngle: 0,
     climbRate: 0,
     perched,
     launchTimer: 0,
+    wetTimer: 0,
     dead: false,
   }
 }
@@ -133,6 +143,12 @@ export function step(s: BirdState, input: Input, air: AirSample, dt: number): Bi
   const aoa = Math.atan2(-fy, fx)
   s.aoa = aoa
 
+  // A bird gripping a branch is not flying. Without this the wind works on the
+  // wing while the feet are planted, and at a standstill the air meets the wing
+  // from behind - which is nonsense aerodynamically and, measured, was strong
+  // enough to hold the bird on its perch through the entire launch.
+  const gripping = s.perched && s.launchTimer <= 0
+
   const cl = liftCoefficient(aoa)
   // Spreading the feet and fanning the tail is enormously draggy, which is
   // exactly how a bird sheds speed.
@@ -148,8 +164,10 @@ export function step(s: BirdState, input: Input, air: AirSample, dt: number): Bi
   else liftDir.copy(up)
 
   force.set(0, 0, 0)
-  force.addScaledVector(liftDir, q * cl)
-  force.addScaledVector(flow, -q * cd)
+  if (!gripping) {
+    force.addScaledVector(liftDir, q * cl)
+    force.addScaledVector(flow, -q * cd)
+  }
   force.y -= mass * T.gravity
 
   // --- Power --------------------------------------------------------------
@@ -170,11 +188,27 @@ export function step(s: BirdState, input: Input, air: AirSample, dt: number): Bi
   // On the ground, the brake key is the launch key. It is the same gesture - the
   // feet drive against the ground instead of against the air - and it means a
   // perched bird waits for the player rather than leaping the instant it lands.
-  if (s.perched && input.brake && s.launchTimer <= 0) s.launchTimer = T.launchDuration
+  if (s.perched && input.brake && s.launchTimer <= 0) {
+    s.launchTimer = T.launchDuration
+    // The leap is an impulse: the legs drive against the branch and the bird is
+    // simply moving, up and forward, before the wings take over.
+    tmp.copy(up).multiplyScalar(0.55).addScaledVector(fwd, 0.84).normalize()
+    s.vel.copy(tmp).multiplyScalar(T.launchSpeed)
+  }
   s.launchTimer = Math.max(0, s.launchTimer - dt)
   // Mid-leap the brake is ignored, or holding the key would stop the takeoff it
   // just started.
   const launching = s.launchTimer > 0
+
+  // Just off the water: the bird hauls itself clear with a few heavy beats. This
+  // is what makes a water touch survivable without also making it free - it
+  // costs the speed the water already took, and it happens without a key, so
+  // there is no way to end up stuck skidding across a lake.
+  s.wetTimer = Math.max(0, s.wetTimer - dt)
+  if (s.wetTimer > 0) {
+    tmp.copy(up).multiplyScalar(0.86).addScaledVector(fwd, 0.5).normalize()
+    force.addScaledVector(tmp, T.waterEscapeThrust)
+  }
 
   if (launching) {
     tmp.copy(up).multiplyScalar(0.78).addScaledVector(fwd, 0.63).normalize()
@@ -248,15 +282,16 @@ export function step(s: BirdState, input: Input, air: AirSample, dt: number): Bi
  * Arriving fast is still fatal, which is what keeps a low pass over rocks a real
  * decision.
  *
- * Water is the exception either way - a raptor can skim it, but it cannot perch
- * on it, so settling onto water drowns.
+ * Water is the exception either way: it is never fatal and never a perch. A
+ * touch costs speed and throws spray, and the bird hauls itself off the surface
+ * again.
  */
 export function resolveGround(
   s: BirdState,
   groundHeight: number,
   isWater: boolean,
   dt: number,
-): 'clear' | 'splash' | 'land' | 'scrape' | 'drown' | 'crash' {
+): 'clear' | 'splash' | 'land' | 'scrape' | 'crash' {
   const floor = groundHeight + T.groundClearance
   if (s.pos.y > floor) {
     s.perched = false
@@ -271,11 +306,10 @@ export function resolveGround(
     const keep = Math.pow(T.waterDragFactor, dt)
     s.vel.x *= keep
     s.vel.z *= keep
-    if (s.airspeed < T.drownSpeed) {
-      s.dead = true
-      s.vel.set(0, 0, 0)
-      return 'drown'
-    }
+    // Water is never fatal. It takes speed, throws spray, and the bird beats its
+    // way out - see `wetTimer`. Drowning used to punish exactly the manoeuvre
+    // fishing is made of: feet down, slow, right at the surface.
+    s.wetTimer = T.waterEscape
     return 'splash'
   }
 

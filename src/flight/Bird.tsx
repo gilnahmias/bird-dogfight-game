@@ -11,8 +11,9 @@ import { useFrame } from '@react-three/fiber'
 import { DoubleSide, ExtrudeGeometry, Group, Shape, ShapeGeometry, Vector3 } from 'three'
 import { createBird, resolveGround, step, type BirdState } from './physics.ts'
 import { input } from './input.ts'
-import { T } from '../game/constants.ts'
-import { biomeAt, heightAt } from '../world/terrain.ts'
+import { T, WORLD } from '../game/constants.ts'
+import { biomeAt, heightAt, tarnPoolAt } from '../world/terrain.ts'
+import { addSplash } from '../world/splash.ts'
 import { useGame } from '../game/store.ts'
 import { createAirSample, sampleAir } from '../world/air.ts'
 import { applyWingPose, createRhythm, stepRhythm, wingPose } from './wingPose.ts'
@@ -21,12 +22,12 @@ import {
   armShape,
   ELBOW_X,
   greaterCoverts,
+  HAND_LEADING,
   handShape,
   lesserCoverts,
   primaries,
   secondaries,
   tailFeathers,
-  WRIST_X,
 } from './wingShapes.ts'
 
 const FIXED_DT = 1 / 120
@@ -105,7 +106,18 @@ export function Bird({
         Math.hypot(state.pos.x - nest.x, state.pos.z - nest.z) < NEST_PERCH_RADIUS &&
         state.pos.y > nest.y - 3
       const floor = overNest ? Math.max(terrain, nest.y) : terrain
-      resolveGround(state, wet && !overNest ? Math.max(terrain, 0) : floor, wet && !overNest, FIXED_DT)
+      // A mountain tarn is water too. Without this the bird passes through the
+      // surface it can see and hits the basin floor a dozen metres below, so the
+      // one place in the world built for a low pass over water was the one place
+      // that killed you for trying it.
+      const pool = tarnPoolAt(state.pos.x, state.pos.z, seed)
+      const onWater = (wet || pool !== null) && !overNest
+      const surface = pool ?? Math.max(terrain, WORLD.waterLevel)
+      const arriving = state.vel.length()
+      const contact = resolveGround(state, onWater ? surface : floor, onWater, FIXED_DT)
+      // Water costs speed instead of killing, so the spray is the only thing
+      // that tells the player they hit it - and where.
+      if (contact === 'splash') addSplash(state.pos.x, surface, state.pos.z, arriving)
     }
 
     // Restart after a crash.
@@ -146,6 +158,12 @@ export function Bird({
     else wingPhase.current += delta * 0.09 // the barest drift, so a glide is not a freeze
 
     const pose = wingPose(wingPhase.current, rhythm.current.beating, state.airspeed)
+    // Published for the shadow: the mark on the ground is the bird seen from the
+    // sun, so it has to narrow as the wings come up.
+    /* oxlint-disable-next-line react/immutability -- `state` is the simulation
+       object, shared and mutated in place by this frame loop by design; it feeds
+       no props and no render. */
+    state.wingAngle = pose.shoulder + pose.elbow * 0.5
 
     // Feet: tucked up in flight, thrown forward and open on the brake.
     for (const foot of [feet.left.current, feet.right.current]) {
@@ -385,13 +403,30 @@ function Wing({ joints }: { joints: WingJoints }) {
       <Feathers shapes={useMemo(() => lesserCoverts(), [])} color={FEATHER_LIGHT} lift={0.09} />
 
       <group ref={joints.elbow} position={[ELBOW_X, 0, 0]}>
-        <mesh geometry={hand} rotation={FLAT} castShadow>
-          <meshStandardMaterial color={FEATHER} roughness={0.92} flatShading />
-        </mesh>
+        {/*
+          The hand is ONE rigid piece: spar, primaries and alula all hang off the
+          wrist together. They used to straddle it - the spar on the elbow, the
+          feathers on the wrist - so every beat pivoted the quills away from the
+          bone they grow out of and opened a visible gap across the middle of the
+          wing.
 
-        <group ref={joints.wrist} position={[WRIST_X, 0, 0]}>
-          <Feathers shapes={useMemo(() => primaries(), [])} color={FEATHER_DARK} lift={-0.01} />
-          <Feathers shapes={useMemo(() => alula(), [])} color={FEATHER_LIGHT} lift={0.07} />
+          The wrist sits on the leading edge rather than mid-chord, because the
+          twist turns about this group. Twisting about the middle swings both
+          edges of the hand away from the arm; twisting about the leading edge
+          keeps that edge joined and lifts only the trailing edge, which is what
+          feathering looks like on a real wing.
+        */}
+        <group ref={joints.wrist} position={[0, 0, HAND_LEADING]}>
+          <group position={[0, 0, -HAND_LEADING]}>
+            <mesh geometry={hand} rotation={FLAT} castShadow>
+              <meshStandardMaterial color={FEATHER} roughness={0.92} flatShading />
+            </mesh>
+            {/* Above the spar, not under it. Tucked below, the hand panel hid
+                them completely once the whole manus became one rigid piece - the
+                wing ended in a blunt plank instead of a spread of fingers. */}
+            <Feathers shapes={useMemo(() => primaries(), [])} color={FEATHER_DARK} lift={0.03} />
+            <Feathers shapes={useMemo(() => alula(), [])} color={FEATHER_LIGHT} lift={0.07} />
+          </group>
         </group>
       </group>
     </group>

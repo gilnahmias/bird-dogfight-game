@@ -20,7 +20,11 @@ export type Telemetry = {
 }
 
 type GameState = Telemetry & {
+  /** Food value banked at the nest. */
   banked: number
+  /** How many animals have been banked. */
+  bankedCount: number
+  /** How many are in the talons right now. */
   carried: number
   runStartedAt: number
   setTelemetry: (t: Partial<Telemetry>) => void
@@ -42,8 +46,10 @@ const initialTelemetry: Telemetry = {
 export const useGame = create<GameState>((set) => ({
   ...initialTelemetry,
   banked: 0,
+  bankedCount: 0,
   carried: 0,
   runStartedAt: Date.now(),
   setTelemetry: (t) => set(t),
+  // Banked food survives a death - it is in the nest, not in the bird.
   reset: () => set({ ...initialTelemetry, carried: 0, runStartedAt: Date.now() }),
 }))

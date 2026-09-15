@@ -7,9 +7,11 @@
  * the fastest way to lose them.
  */
 import { useGame } from '../game/store.ts'
+import { T } from '../game/constants.ts'
 
 export function HUD() {
-  const { airspeed, altitudeAgl, climbRate, lift, talons, perched, dead } = useGame()
+  const { airspeed, altitudeAgl, climbRate, lift, talons, perched, dead, load, carried, banked } =
+    useGame()
 
   return (
     <div className="hud">
@@ -32,13 +34,24 @@ export function HUD() {
       </div>
 
       <div className="hud-right">
-        <div className="bar-label">talons</div>
+        <div className="bar-label">talons {carried > 0 ? `- carrying ${carried}` : ''}</div>
         <div className="bar">
+          {/*
+            One bar, two readings: how far the feet are out, and how full they
+            are. They are the same resource - a full load is what stops the bird
+            taking anything else.
+          */}
           <div
             className="bar-fill"
             style={{ width: `${talons * 100}%`, background: talons > 0.5 ? '#e0b545' : '#7a8794' }}
           />
+          <div className="bar-load" style={{ width: `${(load / T.maxLoad) * 100}%` }} />
         </div>
+      </div>
+
+      <div className="score">
+        <div className="score-value">{banked}</div>
+        <div className="score-label">banked</div>
       </div>
 
       {perched && !dead && <div className="perched">PERCHED &middot; hold a direction to take off</div>}
@@ -55,6 +68,7 @@ export function HUD() {
         <span><b>&darr;</b> nose up</span>
         <span><b>&uarr;</b> nose down</span>
         <span><b>space</b> brake &amp; talons</span>
+        <span>catch prey low, bank it at the nest</span>
       </div>
     </div>
   )

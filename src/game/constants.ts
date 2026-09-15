@@ -99,6 +99,12 @@ export const TUNING = {
    * inside what counts as a landing rather than an impact.
    */
   flareSupport: 0.94,
+  /**
+   * Fraction of cruise below which the flare starts holding the bird up at all.
+   * Above this the wing is still flying and needs no help - and giving it help
+   * anyway threw the bird skyward on every hunting pass.
+   */
+  flareOnset: 0.62,
   /** Seconds-to-full for throwing the feet forward, and for tucking them back. */
   talonOutRate: 6.0,
   talonInRate: 2.6,

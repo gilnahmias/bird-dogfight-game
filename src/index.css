@@ -99,6 +99,41 @@ canvas {
   overflow: hidden;
 }
 
+.bar-load {
+  position: absolute;
+  left: 0;
+  bottom: -5px;
+  height: 3px;
+  border-radius: 2px;
+  background: #e0703a;
+  transition: width 160ms linear;
+}
+
+.bar {
+  position: relative;
+}
+
+.score {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  text-align: right;
+}
+
+.score-value {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.score-label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-top: 3px;
+}
+
 .bar-fill {
   height: 100%;
   border-radius: 4px;

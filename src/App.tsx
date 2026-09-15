@@ -21,6 +21,7 @@ import { Shadow } from './world/Shadow.tsx'
 import { findWaterfalls } from './world/waterfalls.ts'
 import { findTarns } from './world/tarns.ts'
 import { Tarns } from './world/Tarns.tsx'
+import { PreyField } from './world/Prey.tsx'
 import { Waterfalls } from './world/Waterfalls.tsx'
 import { T, WORLD } from './game/constants.ts'
 
@@ -82,6 +83,7 @@ export default function App() {
         <Clouds target={target} seed={SEED} onPatches={onPatches} driftOut={cloudDrift} />
         <CloudShadows patches={patches} seed={SEED} drift={cloudDrift} />
 
+        <PreyField bird={bird} seed={SEED} nest={site.pos} />
         <Shadow state={bird} seed={SEED} />
         <Bird state={bird} seed={SEED} spawn={spawn} heading={site.heading} />
         <ChaseCamera state={bird} />

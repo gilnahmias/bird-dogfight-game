@@ -178,8 +178,12 @@ export function step(s: BirdState, input: Input, air: AirSample, dt: number): Bi
   // rather than dropping. Without this, slowing down over open ground is the
   // same as falling out of the sky, and landing would be impossible.
   if (braking) {
-    const slowness = Math.max(0, 1 - airspeed / T.cruiseSpeed)
-    tmp.set(0, mass * T.gravity * T.flareSupport * slowness * s.talons, 0)
+    // Only once the wing has genuinely lost its lift. Scaled off cruise speed it
+    // was still worth nearly half the bird's weight at a hunting pass of 12 m/s,
+    // on top of the lift the wing was already making - so braking to take
+    // something ballooned the bird up and over the top of it every time.
+    const slowness = Math.max(0, 1 - airspeed / (T.cruiseSpeed * T.flareOnset))
+    tmp.set(0, mass * T.gravity * T.flareSupport * slowness * slowness * s.talons, 0)
     force.add(tmp)
   }
 

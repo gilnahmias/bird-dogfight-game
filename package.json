@@ -13,7 +13,8 @@
     "check": "tsc -b && oxlint src && npm test",
     "air": "node --experimental-strip-types src/dev/airfield.ts",
     "falls": "node --experimental-strip-types src/dev/falls.ts",
-    "nest": "node --experimental-strip-types src/dev/nestfloat.ts"
+    "nest": "node --experimental-strip-types src/dev/nestfloat.ts",
+    "shadow": "node --experimental-strip-types src/dev/shadowcheck.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",

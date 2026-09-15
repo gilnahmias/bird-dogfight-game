@@ -6,7 +6,7 @@
  * straight from the frame loop makes the aerodynamics feel different on different
  * machines, and a single long frame (alt-tab) would launch the bird into orbit.
  */
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, type RefObject } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { ExtrudeGeometry, Group, Shape, Vector3 } from 'three'
 import { createBird, resolveGround, step, type BirdState } from './physics.ts'
@@ -15,6 +15,7 @@ import { T } from '../game/constants.ts'
 import { biomeAt, heightAt } from '../world/terrain.ts'
 import { useGame } from '../game/store.ts'
 import { createAirSample, sampleAir } from '../world/air.ts'
+import { applyWingPose, wingPose } from './wingPose.ts'
 
 const FIXED_DT = 1 / 120
 const MAX_STEPS = 8
@@ -32,8 +33,16 @@ export function Bird({
   heading: number
 }) {
   const root = useRef<Group>(null)
-  const leftWing = useRef<Group>(null)
-  const rightWing = useRef<Group>(null)
+  const left: WingJoints = {
+    shoulder: useRef<Group>(null),
+    elbow: useRef<Group>(null),
+    wrist: useRef<Group>(null),
+  }
+  const right: WingJoints = {
+    shoulder: useRef<Group>(null),
+    elbow: useRef<Group>(null),
+    wrist: useRef<Group>(null),
+  }
   const accumulator = useRef(0)
   const telemetryClock = useRef(0)
   const wingPhase = useRef(0)
@@ -84,25 +93,21 @@ export function Bird({
       root.current.quaternion.copy(state.quat)
     }
 
-    // Wings. Beating while flapping, held out in a glide, swept back when fast.
+    // Wings. The stroke travels out from the shoulder rather than the whole wing
+    // swinging as one piece, which is the difference between a wing and a plank.
     const beatsPerSecond = 1 / T.flapInterval
     if (state.flapping) wingPhase.current += delta * beatsPerSecond
-    else wingPhase.current += delta * 0.35 // a slow idle breath, so it never looks frozen
+    else wingPhase.current += delta * 0.32 // a slow idle breath, so it never looks frozen
 
-    const amplitude = state.flapping ? 0.95 : 0.12
-    const beat = Math.sin(wingPhase.current * Math.PI * 2) * amplitude
-    // Tuck: at high airspeed the wings sweep back and shorten, which is most of
-    // what makes a dive read as a dive.
-    const tuck = Math.min(1, Math.max(0, (state.airspeed - 26) / 18))
-    const dihedral = state.flapping ? 0.06 : 0.16
-    for (const [wing, side] of [
-      [leftWing.current, 1],
-      [rightWing.current, -1],
-    ] as const) {
-      if (!wing) continue
-      wing.rotation.z = side * (dihedral + beat)
-      wing.rotation.y = side * tuck * -0.55
-      wing.scale.x = 1 - tuck * 0.3
+    const pose = wingPose(wingPhase.current, state.flapping, state.airspeed)
+
+    for (const wing of [left, right]) {
+      const { shoulder, elbow, wrist } = wing
+      if (!shoulder.current || !elbow.current || !wrist.current) continue
+      applyWingPose(
+        { shoulder: shoulder.current, elbow: elbow.current, wrist: wrist.current },
+        pose,
+      )
     }
 
     telemetryClock.current += delta
@@ -126,26 +131,21 @@ export function Bird({
 
   return (
     <group ref={root}>
-      <BirdModel leftWing={leftWing} rightWing={rightWing} />
+      <BirdModel left={left} right={right} />
     </group>
   )
 }
 
 const FEATHER = '#6b4f35'
 const FEATHER_DARK = '#4a3524'
+const FEATHER_LIGHT = '#8a6a48'
 const BELLY = '#d8cbb4'
 
 /**
  * Low-poly raptor built from primitives. Forward is -Z. → skipped: a real
  * modelled and skinned bird, add when the flight loop is proven fun.
  */
-function BirdModel({
-  leftWing,
-  rightWing,
-}: {
-  leftWing: React.RefObject<Group | null>
-  rightWing: React.RefObject<Group | null>
-}) {
+function BirdModel({ left, right }: { left: WingJoints; right: WingJoints }) {
   return (
     <group>
       {/* body */}
@@ -177,94 +177,183 @@ function BirdModel({
         </mesh>
       ))}
 
-      <group ref={leftWing} position={[0.35, 0.12, 0]}>
-        <Wing />
+      <group position={[0.35, 0.12, 0]}>
+        <Wing joints={left} />
       </group>
       {/*
-        The mirror sits on an inner group on purpose. The flap animation writes
-        scale.x on the outer group every frame to tuck the wing, and if the
-        mirror lived there the animation would wipe it out on the first frame and
+        The mirror sits on a group the animation never writes to. The flap
+        animation sets scale.x on the shoulder every frame to tuck the wing, and
+        if the mirror lived there it would be wiped out on the first frame and
         fold both wings onto the same side of the bird.
       */}
-      <group ref={rightWing} position={[-0.35, 0.12, 0]}>
-        <group scale={[-1, 1, 1]}>
-          <Wing />
-        </group>
+      <group position={[-0.35, 0.12, 0]} scale={[-1, 1, 1]}>
+        <Wing joints={right} />
       </group>
     </group>
   )
 }
 
 /**
- * Wing plan-form. Boxes read as a plank from the chase camera, which is the one
- * angle the player always has, so the wing is an extruded outline instead:
- * broad chord at the shoulder, swept and tapered to the tip, with the primaries
- * split off as separate feathers so the tip is not a solid edge.
+ * Wing plan-form, split at the elbow and again at the wrist.
  *
- * Built in the span/chord plane and laid flat by the mesh rotation below.
+ * It is three pieces rather than one because a wing that pivots only at the
+ * shoulder reads as a board. Splitting it lets the stroke travel outward, with
+ * each joint trailing the one inboard of it.
  */
-function wingShape(): Shape {
+function innerShape(): Shape {
   const s = new Shape()
-  s.moveTo(0, -0.62) // shoulder, leading edge
-  s.quadraticCurveTo(1.6, -0.86, 3.0, -0.5) // leading edge, swept back
-  s.lineTo(4.15, -0.02) // toward the wrist
-  s.lineTo(4.05, 0.42)
-  s.quadraticCurveTo(2.4, 0.92, 1.0, 0.86) // trailing edge
-  s.lineTo(0, 0.66)
+  s.moveTo(0, -0.62)
+  s.quadraticCurveTo(1.0, -0.8, 2.0, -0.72)
+  s.lineTo(2.0, 0.82)
+  s.quadraticCurveTo(1.0, 0.86, 0, 0.66)
   s.closePath()
   return s
 }
 
-/** A single primary feather, splayed off the wingtip. */
-function featherShape(): Shape {
+function outerShape(): Shape {
   const s = new Shape()
-  s.moveTo(0, -0.11)
-  s.quadraticCurveTo(0.7, -0.15, 1.35, -0.02)
-  s.lineTo(1.35, 0.05)
-  s.quadraticCurveTo(0.7, 0.16, 0, 0.13)
+  s.moveTo(0, -0.72)
+  s.quadraticCurveTo(1.0, -0.6, 1.95, -0.06)
+  s.lineTo(1.9, 0.4)
+  s.quadraticCurveTo(1.0, 0.74, 0, 0.82)
   s.closePath()
   return s
 }
 
-function tailShape(): Shape {
-  const s = new Shape()
-  s.moveTo(-0.16, 0)
-  s.lineTo(0.16, 0)
-  s.lineTo(0.62, 1.35) // fanned out at the back
-  s.lineTo(-0.62, 1.35)
-  s.closePath()
-  return s
+/**
+ * One feather, as an outline in the wing's own plane.
+ *
+ * Feathers are built as arrays of shapes fed to a single ExtrudeGeometry rather
+ * than as a mesh each: ExtrudeGeometry accepts many shapes and merges them, so a
+ * whole row of primaries costs one draw call. That matters once the sky has
+ * rival raptors in it, not just this one.
+ *
+ * `angle` splays the feather; 0 points straight back along the chord.
+ */
+function feather(cx: number, cy: number, length: number, width: number, angle: number): Shape {
+  const outline: [number, number][] = [
+    [0, 0],
+    [width * 0.5, length * 0.28],
+    [width * 0.36, length * 0.76],
+    [0, length],
+    [-width * 0.36, length * 0.76],
+    [-width * 0.5, length * 0.28],
+  ]
+  const shape = new Shape()
+  const cos = Math.cos(angle)
+  const sin = Math.sin(angle)
+  outline.forEach(([px, py], i) => {
+    const x = cx + px * cos - py * sin
+    const y = cy + px * sin + py * cos
+    if (i === 0) shape.moveTo(x, y)
+    else shape.lineTo(x, y)
+  })
+  shape.closePath()
+  return shape
+}
+
+/** A row of feathers laid along the span, fanning as they go outboard. */
+function featherRow(
+  count: number,
+  spanFrom: number,
+  spanTo: number,
+  chord: number,
+  lengthFrom: number,
+  lengthTo: number,
+  width: number,
+  angleFrom: number,
+  angleTo: number,
+): Shape[] {
+  return Array.from({ length: count }, (_, i) => {
+    const t = count === 1 ? 0 : i / (count - 1)
+    return feather(
+      spanFrom + (spanTo - spanFrom) * t,
+      chord,
+      lengthFrom + (lengthTo - lengthFrom) * t,
+      width,
+      angleFrom + (angleTo - angleFrom) * t,
+    )
+  })
+}
+
+/** Secondaries: the short feathers along the trailing edge of the inner wing. */
+function secondaryShapes(): Shape[] {
+  return featherRow(7, 0.15, 1.95, 0.55, 0.78, 0.92, 0.3, 0.16, -0.1)
+}
+
+/** Coverts: the small overlapping feathers that sheathe the leading edge. */
+function covertShapes(): Shape[] {
+  return featherRow(6, 0.25, 1.8, -0.5, 0.5, 0.42, 0.26, 2.9, 3.25)
+}
+
+/** Primaries: the long fingers at the wingtip that splay in a glide. */
+function primaryShapes(): Shape[] {
+  return featherRow(6, 0.0, 0.7, -0.05, 1.5, 1.15, 0.3, 1.25, 2.05)
+}
+
+/** Tail feathers, fanned rather than a single slab. */
+function tailShapes(): Shape[] {
+  return featherRow(7, -0.42, 0.42, 0, 1.25, 1.25, 0.34, -0.42, 0.42)
 }
 
 const EXTRUDE = { depth: 0.09, bevelEnabled: false } as const
+const FEATHER_EXTRUDE = { depth: 0.05, bevelEnabled: false } as const
 
 /** Lay an extruded plan-form flat: chord along Z, thickness in Y. */
 const FLAT: [number, number, number] = [Math.PI / 2, 0, 0]
 
-function Wing() {
-  const wing = useMemo(() => new ExtrudeGeometry(wingShape(), EXTRUDE), [])
-  const feather = useMemo(() => new ExtrudeGeometry(featherShape(), EXTRUDE), [])
+/** Where the elbow sits along the wing, and the wrist beyond it. */
+const ELBOW_X = 2.0
+const WRIST_X = 1.95
+
+export type WingJoints = {
+  shoulder: RefObject<Group | null>
+  elbow: RefObject<Group | null>
+  wrist: RefObject<Group | null>
+}
+
+/* oxlint-disable react/refs -- handing a ref object to `ref=` is what refs are
+   for; the rule is aimed at reading `.current` during render, which this does
+   not do. The joints have to be refs because the frame loop poses them 60 times
+   a second and must never trigger a render. */
+function Wing({ joints }: { joints: WingJoints }) {
+  const inner = useMemo(() => new ExtrudeGeometry(innerShape(), EXTRUDE), [])
+  const outer = useMemo(() => new ExtrudeGeometry(outerShape(), EXTRUDE), [])
+  const secondaries = useMemo(() => new ExtrudeGeometry(secondaryShapes(), FEATHER_EXTRUDE), [])
+  const coverts = useMemo(() => new ExtrudeGeometry(covertShapes(), FEATHER_EXTRUDE), [])
+  const primaries = useMemo(() => new ExtrudeGeometry(primaryShapes(), FEATHER_EXTRUDE), [])
+
   return (
-    <group>
-      <mesh geometry={wing} rotation={FLAT} castShadow>
+    <group ref={joints.shoulder}>
+      <mesh geometry={inner} rotation={FLAT} castShadow>
         <meshStandardMaterial color={FEATHER} roughness={0.9} flatShading />
       </mesh>
-      {[0, 1, 2, 3].map((i) => (
-        <mesh
-          key={i}
-          geometry={feather}
-          position={[4.0 + i * 0.06, 0.005, -0.05 + i * 0.2]}
-          rotation={[Math.PI / 2, 0, -0.18 - i * 0.13]}
-        >
-          <meshStandardMaterial color={FEATHER_DARK} roughness={0.95} flatShading />
+      {/* sat just above and below the panel so both faces show feathering */}
+      <mesh geometry={secondaries} position={[0, 0.045, 0]} rotation={FLAT}>
+        <meshStandardMaterial color={FEATHER_DARK} roughness={0.95} flatShading />
+      </mesh>
+      <mesh geometry={coverts} position={[0, 0.07, 0]} rotation={FLAT}>
+        <meshStandardMaterial color={FEATHER_LIGHT} roughness={0.95} flatShading />
+      </mesh>
+
+      <group ref={joints.elbow} position={[ELBOW_X, 0, 0]}>
+        <mesh geometry={outer} rotation={FLAT} castShadow>
+          <meshStandardMaterial color={FEATHER} roughness={0.92} flatShading />
         </mesh>
-      ))}
+
+        <group ref={joints.wrist} position={[WRIST_X, 0, 0]}>
+          <mesh geometry={primaries} rotation={FLAT}>
+            <meshStandardMaterial color={FEATHER_DARK} roughness={0.95} flatShading />
+          </mesh>
+        </group>
+      </group>
     </group>
   )
 }
+/* oxlint-enable react/refs */
 
 function Tail() {
-  const tail = useMemo(() => new ExtrudeGeometry(tailShape(), EXTRUDE), [])
+  const tail = useMemo(() => new ExtrudeGeometry(tailShapes(), FEATHER_EXTRUDE), [])
   return (
     <mesh geometry={tail} position={[0, 0.02, 0.95]} rotation={FLAT}>
       <meshStandardMaterial color={FEATHER_DARK} roughness={0.9} flatShading />

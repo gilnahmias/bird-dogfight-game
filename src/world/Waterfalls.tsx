@@ -13,6 +13,7 @@ import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { BufferAttribute, BufferGeometry, DoubleSide, type ShaderMaterial, Vector3 } from 'three'
 import type { Waterfall } from './waterfalls.ts'
+import { TIME_OPERATOR } from './waterfallFlow.ts'
 
 /**
  * The sheet, built as a strip of quads following the fall path.
@@ -90,7 +91,10 @@ const fragmentShader = /* glsl */ `
       float lane = floor(vUv.x * (7.0 + fi * 4.0));
       float speed = 0.85 + hash(lane + fi * 13.0) * 1.5;
       float phase = hash(lane * 3.1 + fi) * 10.0;
-      float v = fract(fall * (2.0 + fi) * 1.6 + uTime * speed + phase);
+      // The time term's sign decides which way the water goes, and it is taken
+      // from waterfallFlow.ts so that a test covers it. Added rather than
+      // subtracted, the streaks climb the cliff - which is what they were doing.
+      float v = fract(fall * (2.0 + fi) * 1.6 ${TIME_OPERATOR} uTime * speed + phase);
       streaks += smoothstep(0.55, 1.0, v) * (0.34 - fi * 0.05);
     }
 

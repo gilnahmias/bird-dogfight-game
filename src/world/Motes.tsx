@@ -15,7 +15,7 @@ import { type InstancedMesh, Matrix4, Quaternion, Vector3 } from 'three'
 import { surfaceAt, thermalAt } from './air.ts'
 import { AIR } from '../game/constants.ts'
 
-const COUNT = 150
+const COUNT = 95
 /** Motes live in a box this wide around the bird. */
 const RANGE = 150
 const HEIGHT = 190
@@ -92,7 +92,7 @@ export function Motes({ target, seed }: { target: { current: Vector3 }; seed: st
           )
           if (thermalAt(x, y, z, seed, time) >= MIN_LIFT) {
             mote.pos.set(x, y, z)
-            mote.scale = 0.35 + Math.random() * 0.5
+            mote.scale = 0.55 + Math.random() * 0.7
             placed = true
           }
         }
@@ -128,8 +128,12 @@ export function Motes({ target, seed }: { target: { current: Vector3 }; seed: st
 
   return (
     <instancedMesh ref={mesh} args={[undefined, undefined, COUNT]} frustumCulled={false}>
-      <tetrahedronGeometry args={[0.5]} />
-      <meshStandardMaterial color="#e8dcb8" roughness={1} flatShading transparent opacity={0.75} />
+      {/*
+        Unlit on purpose. Lit blobs in mid-air are shaded dark against a bright
+        sky and read as dirt on the screen rather than as sunlit dust.
+      */}
+      <sphereGeometry args={[1, 6, 4]} />
+      <meshBasicMaterial color="#fff1cf" transparent opacity={0.5} depthWrite={false} />
     </instancedMesh>
   )
 }

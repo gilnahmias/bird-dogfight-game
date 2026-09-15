@@ -31,18 +31,18 @@ export type Waterfall = {
 }
 
 const SEARCH_RADIUS = 2600
-const STEP = 80
+const STEP = 56
 /** Look this far downhill for the landing. */
 const RUNOUT = 190
 /** Step size when walking the fall line out from the lip. */
 const STEP_OUT = 8
 /** Falls closer together than this are the same fall. */
-const MIN_SEPARATION = 260
-const MIN_DROP = 22
-const MIN_RIVER = 0.4
+const MIN_SEPARATION = 170
+export const MIN_DROP = 14
+const MIN_RIVER = 0.28
 
 /** How many segments the sheet is built from. */
-const PATH_STEPS = 9
+const PATH_STEPS = 10
 
 /**
  * The line the water takes down the face: hugging the rock, never climbing, and
@@ -56,20 +56,24 @@ function fallPath(
   run: number,
   seed: string,
 ): Vector3[] {
-  const path: Vector3[] = [top.clone()]
+  /** Stand off the rock face by this much, so the sheet does not z-fight it. */
+  const CLEARANCE = 0.6
+
+  const path: Vector3[] = []
   let y = top.y
-  for (let i = 1; i < PATH_STEPS; i++) {
+  for (let i = 0; i <= PATH_STEPS; i++) {
     const t = i / PATH_STEPS
     const x = top.x + dirX * run * t
     const z = top.z + dirZ * run * t
     // Against the surface that is DRAWN, since that is what the water is seen
     // to run over. The height field sits above it on sharp crests.
     const ground = Math.max(meshHeightAt(x, z, seed, WORLD.lodSegments[0]), base.y)
-    // Follow the rock where it is below us, but never flow back uphill.
-    y = Math.min(y, Math.max(ground, base.y))
-    path.push(new Vector3(x, y + 0.6, z))
+    // Follow the rock where it falls away, but never flow back uphill. The
+    // clearance is applied to every point including the lip, so that adding it
+    // cannot itself make one point higher than the one before.
+    y = Math.min(y, ground)
+    path.push(new Vector3(x, y + CLEARANCE, z))
   }
-  path.push(base.clone())
   return path
 }
 
@@ -88,7 +92,34 @@ function downhill(x: number, z: number, h: number, seed: string) {
   return { drop: best, angle }
 }
 
-export function findWaterfalls(seed: string, centre: Vector3, max = 7): Waterfall[] {
+/**
+ * Cost of a waterfall from the player's point of view, given where they start
+ * and which way they leave.
+ *
+ * Ranking purely on distance from the nest put every fall behind the bird or
+ * hundreds of metres off to one side, so the player flew the departure line and
+ * never saw one. What matters is not how close a fall is, but whether it is
+ * somewhere you will actually look.
+ */
+function viewingCost(w: Waterfall, from: Vector3, heading: Vector3 | null): number {
+  const rx = w.top.x - from.x
+  const rz = w.top.z - from.z
+  if (!heading) return Math.hypot(rx, rz)
+
+  const along = rx * heading.x + rz * heading.z
+  const off = Math.abs(rx * -heading.z + rz * heading.x)
+
+  // Off to the side is the worst thing to be, behind is nearly as bad, and
+  // distance straight ahead barely counts against a fall at all.
+  return off * 2.2 + (along < 0 ? -along * 3 : along * 0.25)
+}
+
+export function findWaterfalls(
+  seed: string,
+  centre: Vector3,
+  heading: Vector3 | null = null,
+  max = 11,
+): Waterfall[] {
   const candidates: Waterfall[] = []
 
   for (let dz = -SEARCH_RADIUS; dz <= SEARCH_RADIUS; dz += STEP) {
@@ -128,7 +159,6 @@ export function findWaterfalls(seed: string, centre: Vector3, max = 7): Waterfal
         landingY = g
       }
       if (run === 0) continue
-      if (lip - Math.max(landingY, WORLD.waterLevel) < MIN_DROP) continue
 
       const top = new Vector3(x, lip, z)
       const bx = x + dirX * run
@@ -140,6 +170,9 @@ export function findWaterfalls(seed: string, centre: Vector3, max = 7): Waterfal
           ? WORLD.waterLevel
           : Math.max(WORLD.waterLevel, meshHeightAt(bx, bz, seed, WORLD.lodSegments[0]))
       const base = new Vector3(bx, footY, bz)
+      // Judge the drop against the foot that actually gets drawn, not against an
+      // intermediate sample, or short falls slip through.
+      if (lip - footY < MIN_DROP) continue
       candidates.push({
         top,
         base,
@@ -151,13 +184,9 @@ export function findWaterfalls(seed: string, centre: Vector3, max = 7): Waterfal
     }
   }
 
-  // Nearest first, so the falls that get kept are the ones the player will
+  // Best-placed first, so the falls that get kept are the ones the player will
   // actually fly past rather than whichever the scan happened to reach first.
-  candidates.sort(
-    (a, b) =>
-      Math.hypot(a.top.x - centre.x, a.top.z - centre.z) -
-      Math.hypot(b.top.x - centre.x, b.top.z - centre.z),
-  )
+  candidates.sort((a, b) => viewingCost(a, centre, heading) - viewingCost(b, centre, heading))
 
   // One fall per river, not twenty down the same one.
   const found: Waterfall[] = []

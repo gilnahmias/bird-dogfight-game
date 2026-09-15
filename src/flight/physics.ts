@@ -5,6 +5,16 @@
  * `step` mutates and returns the state it is given. That is deliberate: it runs
  * every frame and allocating a fresh state (and six Vector3s) per call showed up
  * in the frame budget. Determinism, which is what makes it testable, is intact.
+ *
+ * This is a POWERED bird, not a glider. It beats its wings constantly and holds
+ * a cruising speed on its own, so there is no stall to fall out of and no
+ * stamina to run dry - two ways to lose that punished the player for looking at
+ * the scenery. What is left is the part worth flying: trading height for speed,
+ * reading the air, and choosing when to give speed away.
+ *
+ * Speed is given away with the brake, which is also what puts the talons out.
+ * One key, two meanings, and they are the same idea: a raptor slows by throwing
+ * its feet forward, whether it is landing or taking something.
  */
 import { Quaternion, Vector3 } from 'three'
 import { T } from '../game/constants.ts'
@@ -14,7 +24,8 @@ export type Input = {
   roll: number
   /** -1 nose down, +1 nose up. */
   pitch: number
-  flap: boolean
+  /** Brake and put the talons out. */
+  brake: boolean
 }
 
 export type AirSample = {
@@ -26,20 +37,20 @@ export type BirdState = {
   pos: Vector3
   vel: Vector3
   quat: Quaternion
-  stamina: number
   /** Talon load in weight units. */
   load: number
+  /** 0 tucked, 1 thrown fully forward. Follows the brake, with some travel time. */
+  talons: number
   // Read-only outputs, refreshed each step for the HUD, camera and audio.
   airspeed: number
   aoa: number
-  stalled: boolean
-  /** Ramps 0 -> 1 as the stall deepens; drives the warning before the stall. */
-  stallWarn: number
+  /** Advances continuously; the wings never stop beating. */
   flapPhase: number
-  flappedThisStep: boolean
-  /** True while the wings are actually beating, which is what the model animates. */
-  flapping: boolean
   climbRate: number
+  /** True once the bird has settled on the ground under its own control. */
+  perched: boolean
+  /** Seconds left of the leap that gets a landed bird back into the air. */
+  launchTimer: number
   dead: boolean
 }
 
@@ -51,32 +62,31 @@ export function createBird(pos: Vector3, heading = 0): BirdState {
   const quat = new Quaternion().setFromAxisAngle(UP, heading)
   return {
     pos: pos.clone(),
-    // Start at a healthy cruise so the first second of the game is not a stall.
-    vel: FWD.clone().applyQuaternion(quat).multiplyScalar(T.refSpeed),
+    vel: FWD.clone().applyQuaternion(quat).multiplyScalar(T.cruiseSpeed),
     quat,
-    stamina: T.staminaMax,
     load: 0,
-    airspeed: T.refSpeed,
+    talons: 0,
+    airspeed: T.cruiseSpeed,
     aoa: 0,
-    stalled: false,
-    stallWarn: 0,
     flapPhase: 0,
-    flappedThisStep: false,
-    flapping: false,
     climbRate: 0,
+    perched: false,
+    launchTimer: 0,
     dead: false,
   }
 }
 
-/** Lift coefficient. Linear to the stall angle, then it falls off a cliff. */
+/**
+ * Lift coefficient.
+ *
+ * Rises with angle of attack and then flattens off. It never falls: this bird
+ * does not stall, so hauling the nose up costs speed and climb but can never
+ * drop the wing out from under the player.
+ */
 export function liftCoefficient(aoa: number): number {
-  const sign = Math.sign(aoa)
-  const a = Math.abs(aoa)
-  const clMax = T.clSlope * T.stallAngle
-  if (a <= T.stallAngle) return T.clSlope * aoa
-  const excess = (a - T.stallAngle) / T.stallAngle
-  const falloff = Math.max(T.stallClFloor, 1 - excess * 1.35)
-  return sign * clMax * falloff
+  const peak = T.clSlope * T.aoaSoftLimit
+  // A smooth saturating curve - linear near zero, flattening toward the peak.
+  return peak * Math.tanh((T.clSlope * aoa) / peak)
 }
 
 // Scratch vectors, reused every step so the hot path allocates nothing.
@@ -94,6 +104,12 @@ export function step(s: BirdState, input: Input, air: AirSample, dt: number): Bi
   if (s.dead) return s
 
   const mass = T.mass + s.load * T.loadMassPerUnit
+
+  // The talons take a moment to swing forward and to tuck away again, so the
+  // gesture reads on screen instead of snapping.
+  const talonTarget = input.brake ? 1 : 0
+  const talonRate = talonTarget > s.talons ? T.talonOutRate : T.talonInRate
+  s.talons += Math.sign(talonTarget - s.talons) * Math.min(Math.abs(talonTarget - s.talons), talonRate * dt)
 
   fwd.copy(FWD).applyQuaternion(s.quat)
   up.copy(UP).applyQuaternion(s.quat)
@@ -115,12 +131,11 @@ export function step(s: BirdState, input: Input, air: AirSample, dt: number): Bi
   s.aoa = aoa
 
   const cl = liftCoefficient(aoa)
-  const cd = T.cd0 + T.inducedK * cl * cl
+  // Spreading the feet and fanning the tail is enormously draggy, which is
+  // exactly how a bird sheds speed.
+  const brakeDrag = 1 + s.talons * T.brakeDrag
+  const cd = (T.cd0 + T.inducedK * cl * cl) * brakeDrag
   const q = 0.5 * T.airDensity * airspeed * airspeed * T.wingArea
-
-  s.stalled = Math.abs(aoa) > T.stallAngle
-  // Warn from 70% of the stall angle, so the player hears it coming.
-  s.stallWarn = Math.min(1, Math.max(0, (Math.abs(aoa) - T.stallAngle * 0.7) / (T.stallAngle * 0.3)))
 
   // Lift acts perpendicular to the airflow, in the plane spanned by the flow and
   // the wing. cross(right, flow) is body-up when the flow is along the nose.
@@ -134,59 +149,65 @@ export function step(s: BirdState, input: Input, air: AirSample, dt: number): Bi
   force.addScaledVector(flow, -q * cd)
   force.y -= mass * T.gravity
 
-  // --- Flapping -----------------------------------------------------------
-  s.flappedThisStep = false
-  const wantsFlap = input.flap || (airspeed < T.autoFlapSpeed && !s.dead)
-  s.flapping = wantsFlap && s.stamina > 0
-  s.flapPhase += dt
-  if (wantsFlap && s.stamina > 0 && s.flapPhase >= T.flapInterval) {
-    s.flapPhase = 0
-    s.stamina = Math.max(0, s.stamina - T.flapStaminaCost)
-    s.flappedThisStep = true
-    // An impulse, applied over this step, up and slightly forward.
-    tmp.copy(up).multiplyScalar(0.78).addScaledVector(fwd, 0.62).normalize()
-    force.addScaledVector(tmp, T.flapImpulse / dt)
-  } else if (!wantsFlap) {
-    s.stamina = Math.min(T.staminaMax, s.stamina + T.staminaRegen * dt)
+  // --- Power --------------------------------------------------------------
+  // The wings beat all the time, and the thrust they make is governed toward a
+  // cruising speed: short of it the bird works harder, past it - in a dive - it
+  // coasts and lets gravity do the work.
+  s.flapPhase += dt / T.flapInterval
+  const braking = s.talons > 0.01
+  const deficit = T.cruiseSpeed - airspeed
+  const governed = Math.max(0, Math.min(1, deficit / T.cruiseSpeed + 0.12))
+  // Standing on the ground the bird LEAPS rather than taxis, so the launch shove
+  // goes up and forward rather than straight ahead. Pushed along the nose alone
+  // it was worth less than the bird's own weight unless the player happened to
+  // be pitched steeply up, and a landed bird could not reliably get airborne.
+  if (s.perched && !braking && s.launchTimer <= 0) s.launchTimer = T.launchDuration
+  if (braking) s.launchTimer = 0
+  s.launchTimer = Math.max(0, s.launchTimer - dt)
+
+  if (!braking) {
+    if (s.launchTimer > 0) {
+      tmp.copy(up).multiplyScalar(0.78).addScaledVector(fwd, 0.63).normalize()
+      force.addScaledVector(tmp, T.launchThrust)
+    } else {
+      force.addScaledVector(fwd, governed * T.maxThrust)
+    }
+  }
+
+  // Flaring: braking hard, the bird beats against its own descent and settles
+  // rather than dropping. Without this, slowing down over open ground is the
+  // same as falling out of the sky, and landing would be impossible.
+  if (braking) {
+    const slowness = Math.max(0, 1 - airspeed / T.cruiseSpeed)
+    tmp.set(0, mass * T.gravity * T.flareSupport * slowness * s.talons, 0)
+    force.add(tmp)
   }
 
   // --- Rotation -----------------------------------------------------------
-  // Control authority follows airspeed, and a heavy load blunts it.
+  // Control authority follows airspeed, and a heavy load blunts it. It never
+  // reaches zero: a braking bird still needs to be able to point itself.
   const authority =
-    Math.min(1, airspeed / T.refSpeed) * (1 - T.loadAuthorityPenalty * (s.load / T.maxLoad))
+    Math.max(T.minAuthority, Math.min(1, airspeed / T.refSpeed)) *
+    (1 - T.loadAuthorityPenalty * (s.load / T.maxLoad))
 
   let pitchRate = input.pitch * T.pitchRate * authority
   let rollRate = input.roll * T.rollRate * authority
 
-  // Sign convention: a positive roll rate drops the right wing, so pressing right
-  // banks right and therefore turns right.
-  //
-  // Roll stability acts at all times, which turns the axis into a bank command:
-  // the input rolls, the stability levels, and the wings settle where the two
-  // balance. Releasing the key rolls back to level. Without this the bird cannot
-  // hold the circle a thermal has to be flown in.
-  rollRate += right.y * T.rollStability * authority
-
   // Passive pitch stability: the nose is pulled toward the trim angle of attack.
-  // This is most of why the aircraft recovers on its own, and trimming at a
-  // positive angle (rather than zero, which is zero lift) is what makes a
-  // hands-off glide a glide instead of a dive.
+  // With no stall to recover from this is purely what keeps the bird pointing
+  // where it is going when the player lets go.
   pitchRate -= (aoa - T.trimAoa) * T.pitchStability * authority
 
-  // Past the stall, add nose-down torque. Holding the stick back only cancels
-  // part of it (stallFightFactor), so letting go always recovers.
-  if (s.stalled) {
-    const excess = Math.abs(aoa) - T.stallAngle
-    const fight = input.pitch > 0 ? T.stallFightFactor : 0
-    pitchRate -= Math.sign(aoa) * excess * T.stallRecovery * (1 - fight)
-  }
+  // Roll stability acts at all times, which turns the axis into a bank command:
+  // the input rolls, the stability levels, and the wings settle where the two
+  // balance. Releasing the key rolls back to level.
+  rollRate += right.y * T.rollStability * authority
 
   // Weathervane: yaw out of a sideslip. This is what turns a bank into a
   // coordinated turn without the player ever touching a rudder.
   const sideslip = flow.dot(right)
   const yawRate = -sideslip * T.weathervane * authority
 
-  // Apply body-axis rotation rates.
   spin.setFromAxisAngle(right, pitchRate * dt)
   s.quat.premultiply(spin)
   spin.setFromAxisAngle(fwd, rollRate * dt)
@@ -204,43 +225,75 @@ export function step(s: BirdState, input: Input, air: AirSample, dt: number): Bi
 }
 
 /**
- * Resolve contact with the ground. Kept separate from `step` so the physics has
- * no dependency on the terrain module, and so tests can fly without a world.
+ * Resolve contact with the ground.
  *
- * Contact with solid ground is always fatal. The bird cannot take off from a
- * standstill - a wingbeat is worth far less than its weight - so any survivable
- * landing would strand the player on the floor of the world, alive, with no way
- * back into the air and no way to lose either.
+ * Coming down slowly and under control is a landing, not a crash: the bird can
+ * brake to a standstill, so it can also put itself on the ground and sit there.
+ * Arriving fast is still fatal, which is what keeps a low pass over rocks a real
+ * decision.
  *
- * Water is the exception, because the hunting loop needs low passes over lakes:
- * skim it fast and you come away wet, settle onto it and you drown.
+ * Water is the exception either way - a raptor can skim it, but it cannot perch
+ * on it, so settling onto water drowns.
  */
 export function resolveGround(
   s: BirdState,
   groundHeight: number,
   isWater: boolean,
   dt: number,
-): 'clear' | 'splash' | 'drown' | 'crash' {
+): 'clear' | 'splash' | 'land' | 'scrape' | 'drown' | 'crash' {
   const floor = groundHeight + T.groundClearance
-  if (s.pos.y > floor) return 'clear'
+  if (s.pos.y > floor) {
+    s.perched = false
+    return 'clear'
+  }
 
   s.pos.y = floor
+  const impact = -s.vel.y
 
-  if (!isWater) {
+  if (isWater) {
+    if (s.vel.y < 0) s.vel.y = 0
+    const keep = Math.pow(T.waterDragFactor, dt)
+    s.vel.x *= keep
+    s.vel.z *= keep
+    if (s.airspeed < T.drownSpeed) {
+      s.dead = true
+      s.vel.set(0, 0, 0)
+      return 'drown'
+    }
+    return 'splash'
+  }
+
+  // Solid ground. How hard the bird ARRIVES decides whether it survives - not
+  // how fast it happens to be travelling. Brushing the grass on the way out of a
+  // takeoff is survivable; flying into a hillside is not.
+  if (impact > T.crashSink) {
     s.dead = true
     s.vel.set(0, 0, 0)
     return 'crash'
   }
 
+  // Slow enough over the ground, and settling rather than arriving, is a
+  // landing. Judged on ground speed rather than airspeed: a bird standing still
+  // in a stiff wind still has airspeed, and that must not decide whether it may
+  // put its feet down.
+  const groundSpeed = Math.hypot(s.vel.x, s.vel.z)
+  if (groundSpeed < T.landingSpeed && impact < T.landingSink) {
+    s.perched = true
+    // Rest on the ground without being pinned to it. Zeroing the velocity every
+    // frame - which is what this did first - meant thrust could never build and
+    // the bird could land but never leave.
+    if (s.vel.y < 0) s.vel.y = 0
+    const keep = Math.pow(T.groundFriction, dt)
+    s.vel.x *= keep
+    s.vel.z *= keep
+    return 'land'
+  }
+
+  // Travelling too fast to perch but arriving gently: a scrape. It costs speed
+  // and keeps the bird on the deck, which is a bad place to be, but is not death.
   if (s.vel.y < 0) s.vel.y = 0
-  const keep = Math.pow(T.waterDragFactor, dt)
+  const keep = Math.pow(T.scrapeFriction, dt)
   s.vel.x *= keep
   s.vel.z *= keep
-
-  if (s.airspeed < T.drownSpeed) {
-    s.dead = true
-    s.vel.set(0, 0, 0)
-    return 'drown'
-  }
-  return 'splash'
+  return 'scrape'
 }

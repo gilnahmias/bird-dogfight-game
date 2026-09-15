@@ -10,11 +10,11 @@ export type Telemetry = {
   altitudeAgl: number
   altitudeMsl: number
   climbRate: number
-  stamina: number
-  stallWarn: number
-  stalled: boolean
   /** Vertical speed of the air itself - the variometer, not the bird's climb. */
   lift: number
+  /** 0 tucked, 1 thrown fully forward. */
+  talons: number
+  perched: boolean
   load: number
   dead: boolean
 }
@@ -32,10 +32,9 @@ const initialTelemetry: Telemetry = {
   altitudeAgl: 0,
   altitudeMsl: 0,
   climbRate: 0,
-  stamina: 100,
-  stallWarn: 0,
-  stalled: false,
   lift: 0,
+  talons: 0,
+  perched: false,
   load: 0,
   dead: false,
 }

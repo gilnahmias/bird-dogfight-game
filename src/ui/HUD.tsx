@@ -7,19 +7,14 @@
  * the fastest way to lose them.
  */
 import { useGame } from '../game/store.ts'
-import { T } from '../game/constants.ts'
 
 export function HUD() {
-  const { airspeed, altitudeAgl, climbRate, lift, stamina, stallWarn, stalled, dead } = useGame()
-
-  const stallSpeed = Math.sqrt(
-    (2 * T.mass * T.gravity) / (T.airDensity * T.wingArea * T.clSlope * T.stallAngle),
-  )
+  const { airspeed, altitudeAgl, climbRate, lift, talons, perched, dead } = useGame()
 
   return (
     <div className="hud">
       <div className="hud-left">
-        <Gauge label="airspeed" value={airspeed.toFixed(0)} unit="m/s" warn={airspeed < stallSpeed * 1.15} />
+        <Gauge label="airspeed" value={airspeed.toFixed(0)} unit="m/s" warn={talons > 0.4} />
         <Gauge label="altitude" value={Math.max(0, altitudeAgl).toFixed(0)} unit="m agl" />
         <Gauge
           label="climb"
@@ -37,24 +32,16 @@ export function HUD() {
       </div>
 
       <div className="hud-right">
-        <div className="bar-label">stamina</div>
+        <div className="bar-label">talons</div>
         <div className="bar">
           <div
             className="bar-fill"
-            style={{
-              width: `${(stamina / T.staminaMax) * 100}%`,
-              background: stamina < 25 ? '#e0703a' : '#6fc46f',
-            }}
+            style={{ width: `${talons * 100}%`, background: talons > 0.5 ? '#e0b545' : '#7a8794' }}
           />
         </div>
       </div>
 
-      {stallWarn > 0 && !dead && (
-        <div className="stall" style={{ opacity: 0.35 + stallWarn * 0.65 }}>
-          {stalled ? 'STALL' : 'STALL WARNING'}
-          <div className="stall-hint">ease off - it recovers itself</div>
-        </div>
-      )}
+      {perched && !dead && <div className="perched">PERCHED &middot; hold a direction to take off</div>}
 
       {dead && (
         <div className="dead">
@@ -67,7 +54,7 @@ export function HUD() {
         <span><b>&larr; &rarr;</b> bank</span>
         <span><b>&darr;</b> nose up</span>
         <span><b>&uarr;</b> nose down</span>
-        <span><b>space</b> flap</span>
+        <span><b>space</b> brake &amp; talons</span>
       </div>
     </div>
   )

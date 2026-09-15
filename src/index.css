@@ -105,6 +105,18 @@ canvas {
   transition: width 120ms linear, background 200ms linear;
 }
 
+.perched {
+  position: absolute;
+  top: 16%;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  color: #e0b545;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+}
+
 .stall {
   position: absolute;
   top: 16%;

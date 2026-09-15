@@ -108,11 +108,19 @@ export function Bird({
 
     // Wings. The stroke travels out from the shoulder rather than the whole wing
     // swinging as one piece, which is the difference between a wing and a plank.
-    const beatsPerSecond = 1 / T.flapInterval
-    if (state.flapping) wingPhase.current += delta * beatsPerSecond
-    else wingPhase.current += delta * 0.32 // a slow idle breath, so it never looks frozen
+    // The wings never stop. A bird under power is always working, and a frozen
+    // glider pose was the single thing that most made this read as a model plane.
+    wingPhase.current += delta / T.flapInterval
 
-    const pose = wingPose(wingPhase.current, state.flapping, state.airspeed)
+    const pose = wingPose(wingPhase.current, true, state.airspeed)
+
+    // Feet: tucked up in flight, thrown forward and open on the brake.
+    for (const foot of [feet.left.current, feet.right.current]) {
+      if (!foot) continue
+      foot.rotation.x = -1.15 + state.talons * 1.55
+      foot.position.z = 0.02 - state.talons * 0.34
+      foot.position.y = state.talons * 0.06
+    }
 
     for (const wing of [left, right]) {
       const { shoulder, elbow, wrist } = wing
@@ -132,11 +140,10 @@ export function Bird({
         altitudeAgl: state.pos.y - ground,
         altitudeMsl: state.pos.y,
         climbRate: state.climbRate,
-        stamina: state.stamina,
-        stallWarn: state.stallWarn,
-        stalled: state.stalled,
         lift: air.lift,
         load: state.load,
+        talons: state.talons,
+        perched: state.perched,
         dead: state.dead,
       })
     }

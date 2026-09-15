@@ -12,11 +12,12 @@ export const TUNING = {
   airDensity: 1.225, // kg/m^3
   gravity: 9.81, // m/s^2
 
-  // Lift curve. clSlope * stallAngle = max lift coefficient, which sets stall
-  // speed: sqrt(2*m*g / (rho*S*clMax)) ~= 9 m/s with these numbers.
+  // Lift curve. It saturates instead of breaking down: there is no stall in this
+  // model, so pulling the nose up costs speed and climb but never drops the wing
+  // out from under the player.
   clSlope: 5.0, // per radian
-  stallAngle: 0.26, // rad (~15 deg)
-  stallClFloor: 0.3, // fraction of clMax still produced deep in a stall
+  /** Angle of attack where lift has essentially flattened off. */
+  aoaSoftLimit: 0.34, // rad
 
   // Drag: cd0 is parasitic, inducedK multiplies cl^2.
   cd0: 0.03,
@@ -26,6 +27,34 @@ export const TUNING = {
   // Authority scales with airspeed: no airflow, no control. This is what makes
   // a stall feel like a stall without needing a spin model.
   refSpeed: 20, // m/s at which control authority is full
+  /**
+   * The speed the bird holds under its own power. It beats its wings constantly,
+   * so it accelerates toward this and coasts past it in a dive.
+   */
+  cruiseSpeed: 21,
+  /** Cap on the thrust the governor may call for. */
+  maxThrust: 26,
+  /**
+   * Thrust available while standing on the ground.
+   *
+   * A bird leaps off, it does not taxi. Cruise thrust with the nose up is worth
+   * well under the bird's own weight, so without this the player could land and
+   * then never leave - perched forever, alive, with nothing to do.
+   */
+  launchThrust: 78,
+  /**
+   * Seconds the leap keeps pushing once it starts.
+   *
+   * A committed burst rather than a per-frame check, because sitting on the
+   * ground the bird flickers in and out of contact - and gating the shove on
+   * that flag meant it fired on maybe half the frames, leaving the bird
+   * shuffling along the deck instead of getting away.
+   */
+  launchDuration: 1.1,
+  /** Speed kept per second while standing on the ground. */
+  groundFriction: 0.02,
+  /** Control never fades out entirely - a braking bird still has to steer. */
+  minAuthority: 0.35,
   pitchRate: 1.15, // rad/s at full authority
   rollRate: 2.6, // rad/s at full authority
 
@@ -50,20 +79,29 @@ export const TUNING = {
    */
   rollStability: 3.1,
 
-  // Extra nose-down torque past the stall angle. The player can fight it (which
-  // delays recovery) but cannot cancel it, so letting go always recovers.
-  stallRecovery: 4.0,
-  stallFightFactor: 0.55, // how much of the recovery torque holding pitch-up cancels
 
-  // --- Flapping -----------------------------------------------------------
-  flapImpulse: 4.2, // N*s per wingbeat, along body up+forward
-  flapInterval: 0.4, // s between beats while holding flap
-  flapStaminaCost: 3.5,
-  staminaMax: 100,
-  staminaRegen: 7.0, // per second while not flapping
-  // Assist: auto-flap when airspeed decays toward stall, so a new player cannot
-  // simply fall out of the sky while learning.
-  autoFlapSpeed: 11.0, // m/s
+  // --- Wingbeat -----------------------------------------------------------
+  /** Seconds per beat. Purely how fast the wings look like they are working. */
+  flapInterval: 0.4,
+
+  // --- Brake and talons ---------------------------------------------------
+  /**
+   * Multiplier on drag with the feet fully out. Spreading the talons and fanning
+   * the tail is enormously draggy, which is exactly how a bird sheds speed.
+   */
+  brakeDrag: 9.0,
+  /**
+   * How much of its own weight the bird holds up while flaring.
+   *
+   * Deliberately just under 1. At 1.15 it hovered indefinitely a few metres up
+   * and could never actually land; a shade under its own weight means a braking
+   * bird settles, and drag from the spread talons caps the sink at about 4 m/s -
+   * inside what counts as a landing rather than an impact.
+   */
+  flareSupport: 0.94,
+  /** Seconds-to-full for throwing the feet forward, and for tucking them back. */
+  talonOutRate: 6.0,
+  talonInRate: 2.6,
 
   // --- Carry load ---------------------------------------------------------
   maxLoad: 6.0, // talon weight budget (arbitrary units, 1 unit = 0.35 kg)
@@ -72,13 +110,27 @@ export const TUNING = {
 
   // --- Ground -------------------------------------------------------------
   groundClearance: 1.2, // m below which we are touching terrain
-  // Touching solid ground always ends the run. A raptor that is on the ground
-  // cannot generate enough thrust to get airborne again in this model, so any
-  // other rule leaves the player stranded, alive, with nothing to do.
+  // Touching solid ground is survivable now: the bird can brake to a standstill
+  // and beat its way back off the deck, so landing is a move rather than a
+  // failure. Arriving fast is still fatal.
   waterDragFactor: 0.55, // speed retained per second while dragging through water
   // Skim a lake fast and you get away with it. Settle onto it and you drown -
   // which is what keeps a low pass over water a real decision.
   drownSpeed: 9.0, // m/s
+  /** Slow enough, and sinking gently enough, to put the feet down and perch. */
+  landingSpeed: 7.5, // m/s
+  landingSink: 6.0, // m/s
+  /**
+   * Downward speed at impact above which the ground kills.
+   *
+   * Judged on how hard the bird arrives, not on how fast it is travelling.
+   * Brushing the grass at speed on the way out of a takeoff is survivable;
+   * flying into a hillside is not. Using horizontal speed instead meant every
+   * takeoff ended in a crash a second after leaving the ground.
+   */
+  crashSink: 9.0, // m/s
+  /** Speed kept per second while scraping along the ground. */
+  scrapeFriction: 0.35,
 
   // --- Camera -------------------------------------------------------------
   camDistance: 11,

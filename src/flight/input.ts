@@ -3,7 +3,9 @@
  * frame loop 60 times a second and must never trigger a render.
  *
  * Left/Right bank (which turns you). Down pulls the nose up, Up pushes it down,
- * like a plane. Space flaps.
+ * like a plane. Space brakes and puts the talons out - one key, because for a
+ * raptor they are one movement: the feet come forward to slow down, to land, and
+ * to take something.
  */
 import type { Input } from './physics.ts'
 
@@ -12,7 +14,7 @@ const pressed = new Set<string>()
 export const input: Input & { restart: boolean } = {
   roll: 0,
   pitch: 0,
-  flap: false,
+  brake: false,
   restart: false,
 }
 
@@ -36,7 +38,7 @@ function refresh() {
   const noseUp = pressed.has('ArrowDown') || pressed.has('KeyS')
   input.roll = (right ? 1 : 0) - (left ? 1 : 0)
   input.pitch = (noseUp ? 1 : 0) - (noseDown ? 1 : 0)
-  input.flap = pressed.has('Space')
+  input.brake = pressed.has('Space')
   input.restart = pressed.has('Enter')
 }
 

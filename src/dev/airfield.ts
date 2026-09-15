@@ -45,9 +45,9 @@ function fly(x: number, z: number, y: number, seconds: number, roll = 0, pitch =
   const y0 = bird.pos.y
   for (let i = 0; i < seconds / dt; i++) {
     sampleAir(bird.pos, SEED, air, i * dt)
-    step(bird, { roll, pitch, flap: false }, air, dt)
+    step(bird, { roll, pitch, brake: false }, air, dt)
   }
-  return { dy: bird.pos.y - y0, speed: bird.airspeed, stamina: bird.stamina }
+  return { dy: bird.pos.y - y0, speed: bird.airspeed }
 }
 
 const glide = (x: number, z: number, y: number, seconds: number) => fly(x, z, y, seconds).dy
@@ -58,7 +58,7 @@ console.log(`wind        ${AIR.windSpeed} m/s toward (${wind.x.toFixed(2)}, ${wi
 console.log(`thermals    strongest ${best.toFixed(2)} m/s, worst sink ${worst.toFixed(2)} m/s`)
 console.log(`coverage    ${((lifting / land) * 100).toFixed(0)}% of dry sky is rising at 200m agl\n`)
 
-console.log('hands-off glide, no flapping:')
+console.log('hands off, no input:')
 for (const seconds of [10, 20, 40]) {
   const inCore = core ? glide(core.x, core.z, core.g + 200, seconds) : 0
   const inSink = dead ? glide(dead.x, dead.z, dead.g + 200, seconds) : 0
@@ -73,7 +73,7 @@ for (const [roll, pitch] of [[0.3, 0.2], [0.55, 0.28], [0.75, 0.35], [0.9, 0.45]
   const bankDeg = ((Math.asin(Math.min(1, (roll * 2.6) / 3.1)) * 180) / Math.PI).toFixed(0)
   console.log(
     `  roll ${roll.toFixed(2)} (~${bankDeg} deg bank)  60s -> ${r.dy >= 0 ? '+' : ''}${r.dy.toFixed(0)}m` +
-      `   speed ${r.speed.toFixed(1)} m/s   stamina ${Math.round(r.stamina)}`,
+      `   speed ${r.speed.toFixed(1)} m/s`,
   )
 }
 

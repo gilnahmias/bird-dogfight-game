@@ -7,7 +7,7 @@ import { createBird, step, type Input } from '../flight/physics.ts'
 import { AIR, WORLD } from '../game/constants.ts'
 
 const SEED = 'pine-ridge'
-const NEUTRAL: Input = { roll: 0, pitch: 0, flap: false }
+const NEUTRAL: Input = { roll: 0, pitch: 0, brake: false }
 
 function airAt(x: number, y: number, z: number, seed = SEED) {
   return sampleAir(new Vector3(x, y, z), seed, createAirSample())
@@ -132,35 +132,47 @@ test('surfaceAt reports the lake top over water and the ground over land', () =>
   }
 })
 
-test('a bird that circles a thermal climbs without flapping', () => {
-  // The Phase 2 gate, stated as a test: altitude for free, by reading the world.
-  let spot: { x: number; z: number } | null = null
-  let best = 0
-  for (let i = 0; i < 30000; i++) {
-    const x = (i % 170) * 70 - 6000
-    const z = Math.floor(i / 170) * 70 - 6000
-    const ground = heightAt(x, z, SEED)
-    if (ground < WORLD.waterLevel) continue
-    const t = thermalAt(x, ground + 200, z, SEED)
-    if (t > best) {
-      best = t
-      spot = { x, z }
+test('a bird that circles a thermal climbs faster than one in dead air', () => {
+  // The Phase 2 gate, restated for a powered bird: the air still decides how
+  // well you do. The bird can climb on its own now, so the claim is no longer
+  // "climbs without flapping" but "the sky is worth reading" - working a core
+  // must beat working nothing.
+  const findCore = (want: 'best' | 'worst') => {
+    let spot: { x: number; z: number } | null = null
+    let mark = want === 'best' ? -Infinity : Infinity
+    for (let i = 0; i < 30000; i++) {
+      const x = (i % 170) * 70 - 6000
+      const z = Math.floor(i / 170) * 70 - 6000
+      const ground = heightAt(x, z, SEED)
+      if (ground < WORLD.waterLevel) continue
+      const t = thermalAt(x, ground + 200, z, SEED)
+      if (want === 'best' ? t > mark : t < mark) {
+        mark = t
+        spot = { x, z }
+      }
     }
+    return spot!
   }
-  assert.ok(spot, 'no thermal found')
 
-  const ground = heightAt(spot!.x, spot!.z, SEED)
-  const bird = createBird(new Vector3(spot!.x, ground + 150, spot!.z))
-  const start = bird.pos.y
-  const air = createAirSample()
-  const dt = 1 / 120
-  // A steady bank, which is how a thermal is actually worked.
-  for (let i = 0; i < 60 / dt; i++) {
-    sampleAir(bird.pos, SEED, air, i * dt)
-    step(bird, { roll: 0.55, pitch: 0.28, flap: false }, air, dt)
+  const circle = (spot: { x: number; z: number }) => {
+    const ground = heightAt(spot.x, spot.z, SEED)
+    const bird = createBird(new Vector3(spot.x, ground + 150, spot.z))
+    const start = bird.pos.y
+    const air = createAirSample()
+    const dt = 1 / 120
+    for (let i = 0; i < 60 / dt; i++) {
+      sampleAir(bird.pos, SEED, air, i * dt)
+      step(bird, { roll: 0.55, pitch: 0.28, brake: false }, air, dt)
+    }
+    return bird.pos.y - start
   }
-  assert.ok(bird.stamina > 99, 'this has to be done without flapping')
-  assert.ok(bird.pos.y > start + 60, `expected a real climb, went ${(bird.pos.y - start).toFixed(0)}m`)
+
+  const inLift = circle(findCore('best'))
+  const inSink = circle(findCore('worst'))
+  assert.ok(
+    inLift > inSink + 40,
+    `working a thermal gained ${inLift.toFixed(0)}m against ${inSink.toFixed(0)}m in sink - the air barely matters`,
+  )
 })
 
 test('thermals drift downwind, so a circling bird is not blown out of its own core', () => {
@@ -193,8 +205,8 @@ test('thermals drift downwind, so a circling bird is not blown out of its own co
   )
 })
 
-test('a bird gliding over open water loses height faster than over dry land', () => {
-  const glide = (x: number, z: number) => {
+test('open water costs height compared with a thermal over land', () => {
+  const fly = (x: number, z: number) => {
     const y = surfaceAt(x, z, SEED) + 150
     const bird = createBird(new Vector3(x, y, z))
     const air = createAirSample()
@@ -203,15 +215,22 @@ test('a bird gliding over open water loses height faster than over dry land', ()
       sampleAir(bird.pos, SEED, air, i * dt)
       step(bird, NEUTRAL, air, dt)
     }
-    return y - bird.pos.y
+    return bird.pos.y - y
   }
+
   let water: number | null = null
-  for (let i = 0; i < 30000 && water === null; i++) {
+  let land: number | null = null
+  for (let i = 0; i < 30000 && (water === null || land === null); i++) {
     const x = (i % 170) * 70 - 6000
     const z = Math.floor(i / 170) * 70 - 6000
-    if (heightAt(x, z, SEED) < WORLD.waterLevel - 40) water = glide(x, z)
+    const ground = heightAt(x, z, SEED)
+    if (water === null && ground < WORLD.waterLevel - 40) water = fly(x, z)
+    if (land === null && ground > WORLD.waterLevel && thermalAt(x, ground + 150, z, SEED) > 3) {
+      land = fly(x, z)
+    }
   }
-  assert.ok(water !== null && water > 0, 'a glide over a lake must lose height')
+  assert.ok(water !== null && land !== null, 'needed both a lake and a thermal to compare')
+  assert.ok(land! > water!, `a lake (${water!.toFixed(0)}m) should cost height against lift (${land!.toFixed(0)}m)`)
 })
 
 test('the moisture field actually varies, so heating is not uniform', () => {

@@ -85,7 +85,7 @@ export default function App() {
         <PreyField bird={bird} seed={SEED} nest={nest} />
         <Shadow state={bird} seed={SEED} />
         <Bird state={bird} seed={SEED} spawn={spawn} heading={site.heading} nest={nest} />
-        <ChaseCamera state={bird} />
+        <ChaseCamera state={bird} seed={SEED} />
         <DevBridge bird={bird} />
       </Canvas>
       <HUD nest={nest} bird={bird} seed={SEED} />

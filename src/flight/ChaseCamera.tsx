@@ -14,7 +14,9 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { Matrix4, PerspectiveCamera, Quaternion, Vector3 } from 'three'
 import type { BirdState } from './physics.ts'
 import { FWD, UP } from './physics.ts'
-import { T } from '../game/constants.ts'
+import { T, WORLD } from '../game/constants.ts'
+import { meshHeightAt } from '../world/terrain.ts'
+import { keepAboveGround, keepCameraClear } from './cameraRig.ts'
 
 const fwd = new Vector3()
 const up = new Vector3()
@@ -25,11 +27,15 @@ const levelUp = new Vector3()
 const m = new Matrix4()
 const noRoll = new Quaternion()
 const blended = new Quaternion()
+const target = new Vector3()
+/** How quickly a collision correction is eased in and out, per second. */
+const CORRECTION_RATE = 10
 
-export function ChaseCamera({ state }: { state: BirdState }) {
+export function ChaseCamera({ state, seed }: { state: BirdState; seed: string }) {
   const camera = useThree((s) => s.camera)
   const smoothed = useRef<Vector3 | null>(null)
   const smoothedLook = useRef<Vector3 | null>(null)
+  const shown = useRef<Vector3 | null>(null)
 
   useFrame((_, delta) => {
     fwd.copy(FWD).applyQuaternion(state.quat)
@@ -48,6 +54,7 @@ export function ChaseCamera({ state }: { state: BirdState }) {
     offset.set(0, T.camHeight, T.camDistance).applyQuaternion(blended)
     desired.copy(state.pos).add(offset)
 
+
     if (!smoothed.current) smoothed.current = desired.clone()
     if (!smoothedLook.current) smoothedLook.current = state.pos.clone()
 
@@ -57,7 +64,26 @@ export function ChaseCamera({ state }: { state: BirdState }) {
     lookTarget.copy(state.pos).addScaledVector(fwd, T.camLookAhead)
     smoothedLook.current.lerp(lookTarget, Math.min(1, k * 1.6))
 
-    camera.position.copy(smoothed.current)
+    /*
+      Keep it out of the mountain.
+
+      The lag is exactly what drags the camera into a hill - it is still
+      following where the bird was a moment ago, which on a turn along a slope is
+      uphill and underground. So the corrected position is worked out FROM the
+      lagged one every frame, but never written back into it: fed back, each
+      frame's rise became the next frame's starting point and the camera climbed
+      away from the bird without limit.
+
+      The correction is eased so it does not pop, and then held above the ground
+      outright, so the easing can never carry it into the terrain.
+    */
+    const groundAt = (x: number, z: number) =>
+      Math.max(meshHeightAt(x, z, seed, WORLD.lodSegments[0]), WORLD.waterLevel)
+    keepCameraClear(state.pos, smoothed.current, groundAt, target)
+    if (!shown.current) shown.current = target.clone()
+    shown.current.lerp(target, 1 - Math.exp(-CORRECTION_RATE * delta))
+    keepAboveGround(shown.current, groundAt)
+    camera.position.copy(shown.current)
     camera.up.copy(levelUp).lerp(up, T.camRollShare).normalize()
     camera.lookAt(smoothedLook.current)
 

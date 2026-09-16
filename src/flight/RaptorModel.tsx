@@ -6,8 +6,8 @@
  * not happen is two raptors drifting apart as models. → skipped: a real modelled
  * and skinned bird, add when the dogfight is proven fun.
  */
-import { useMemo, type RefObject } from 'react'
-import { DoubleSide, ExtrudeGeometry, Group, Shape, ShapeGeometry } from 'three'
+import type { RefObject } from 'react'
+import { DoubleSide, ExtrudeGeometry, Group, ShapeGeometry } from 'three'
 import { PLUMAGE, type Plumage } from './plumage.ts'
 import {
   alula,
@@ -179,15 +179,14 @@ export type WingJoints = {
  * no thickness has no back.
  */
 function Feathers({
-  shapes,
+  geometry,
   color,
   lift,
 }: {
-  shapes: Shape[]
+  geometry: ShapeGeometry
   color: string
   lift: number
 }) {
-  const geometry = useMemo(() => new ShapeGeometry(shapes, 8), [shapes])
   return (
     <mesh geometry={geometry} position={[0, lift, 0]} rotation={FLAT}>
       <meshStandardMaterial
@@ -207,6 +206,25 @@ function Feathers({
    for; the rule is aimed at reading `.current` during render, which this does
    not do. The joints have to be refs because the frame loop poses them 60 times
    a second and must never trigger a render. */
+/**
+ * The wing's geometry, built once for the whole game.
+ *
+ * Every raptor is the same shape - only the colours differ - and rivals come and
+ * go every few seconds. Built per component, each one that ever appeared left
+ * behind an extruded arm, an extruded hand and five rows of feathers, none of
+ * which were released.
+ */
+const WING_GEOMETRY = {
+  arm: new ExtrudeGeometry(armShape(), SPAR),
+  hand: new ExtrudeGeometry(handShape(), SPAR),
+  secondaries: new ShapeGeometry(secondaries(), 8),
+  greaterCoverts: new ShapeGeometry(greaterCoverts(), 8),
+  lesserCoverts: new ShapeGeometry(lesserCoverts(), 8),
+  primaries: new ShapeGeometry(primaries(), 8),
+  alula: new ShapeGeometry(alula(), 8),
+  tail: new ShapeGeometry(tailFeathers(), 8),
+}
+
 function Wing({ joints, palette }: { joints: WingJoints; palette: Plumage }) {
   const {
     feather: FEATHER,
@@ -214,17 +232,15 @@ function Wing({ joints, palette }: { joints: WingJoints; palette: Plumage }) {
     featherDark: FEATHER_DARK,
     featherLight: FEATHER_LIGHT,
   } = palette
-  const arm = useMemo(() => new ExtrudeGeometry(armShape(), SPAR), [])
-  const hand = useMemo(() => new ExtrudeGeometry(handShape(), SPAR), [])
 
   return (
     <group ref={joints.shoulder}>
-      <mesh geometry={arm} rotation={FLAT} castShadow>
+      <mesh geometry={WING_GEOMETRY.arm} rotation={FLAT} castShadow>
         <meshStandardMaterial color={FEATHER} roughness={0.9} flatShading />
       </mesh>
-      <Feathers shapes={useMemo(() => secondaries(), [])} color={FEATHER} lift={0.0} />
-      <Feathers shapes={useMemo(() => greaterCoverts(), [])} color={FEATHER_MID} lift={0.05} />
-      <Feathers shapes={useMemo(() => lesserCoverts(), [])} color={FEATHER_LIGHT} lift={0.09} />
+      <Feathers geometry={WING_GEOMETRY.secondaries} color={FEATHER} lift={0.0} />
+      <Feathers geometry={WING_GEOMETRY.greaterCoverts} color={FEATHER_MID} lift={0.05} />
+      <Feathers geometry={WING_GEOMETRY.lesserCoverts} color={FEATHER_LIGHT} lift={0.09} />
 
       <group ref={joints.elbow} position={[ELBOW_X, 0, 0]}>
         {/*
@@ -242,14 +258,14 @@ function Wing({ joints, palette }: { joints: WingJoints; palette: Plumage }) {
         */}
         <group ref={joints.wrist} position={[0, 0, HAND_LEADING]}>
           <group position={[0, 0, -HAND_LEADING]}>
-            <mesh geometry={hand} rotation={FLAT} castShadow>
+            <mesh geometry={WING_GEOMETRY.hand} rotation={FLAT} castShadow>
               <meshStandardMaterial color={FEATHER} roughness={0.92} flatShading />
             </mesh>
             {/* Above the spar, not under it. Tucked below, the hand panel hid
                 them completely once the whole manus became one rigid piece - the
                 wing ended in a blunt plank instead of a spread of fingers. */}
-            <Feathers shapes={useMemo(() => primaries(), [])} color={FEATHER_DARK} lift={0.03} />
-            <Feathers shapes={useMemo(() => alula(), [])} color={FEATHER_LIGHT} lift={0.07} />
+            <Feathers geometry={WING_GEOMETRY.primaries} color={FEATHER_DARK} lift={0.03} />
+            <Feathers geometry={WING_GEOMETRY.alula} color={FEATHER_LIGHT} lift={0.07} />
           </group>
         </group>
       </group>
@@ -260,10 +276,9 @@ function Wing({ joints, palette }: { joints: WingJoints; palette: Plumage }) {
 
 function Tail({ palette }: { palette: Plumage }) {
   const { feather: FEATHER, featherDark: FEATHER_DARK } = palette
-  const shapes = useMemo(() => tailFeathers(), [])
   return (
     <group position={[0, 0.02, 0.95]}>
-      <Feathers shapes={shapes} color={FEATHER_DARK} lift={0} />
+      <Feathers geometry={WING_GEOMETRY.tail} color={FEATHER_DARK} lift={0} />
       {/* upper tail coverts, covering where the fan meets the body */}
       <mesh position={[0, 0.06, -0.08]} rotation={FLAT}>
         <circleGeometry args={[0.34, 10]} />

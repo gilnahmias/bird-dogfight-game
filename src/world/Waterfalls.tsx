@@ -9,7 +9,7 @@
  * Each fall is one double-sided quad plus a mist disc, so a fall costs two draw
  * calls and no texture memory.
  */
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { BufferAttribute, BufferGeometry, DoubleSide, type ShaderMaterial, Vector3 } from 'three'
 import { findWaterfalls, type Waterfall } from './waterfalls.ts'
@@ -171,6 +171,14 @@ function Fall({ fall }: { fall: Waterfall }) {
   })
 
   const geometry = useMemo(() => sheetGeometry(fall), [fall])
+  /*
+    Built by hand, so it has to be released by hand.
+
+    The falls are rebuilt as the bird travels, and React only disposes what it
+    made itself - every kilometre flown was leaving its waterfalls behind on the
+    GPU.
+  */
+  useEffect(() => () => geometry.dispose(), [geometry])
 
   return (
     <group position={[fall.top.x, fall.top.y, fall.top.z]}>

@@ -79,7 +79,22 @@ const BODY_RATIO = 0.82
  * so the SAME texture gives a hard edge on the deck and a soft one at altitude -
  * no second texture, no blur pass, one uniform.
  */
+let shared: CanvasTexture | null = null
+
+/**
+ * The one silhouette, built on first use and shared by every bird.
+ *
+ * There is a shadow per bird in the sky and rivals come and go every few
+ * seconds; a texture each meant a fresh 256px canvas and a fresh upload to the
+ * GPU for every rival that ever appeared, none of which were ever released.
+ */
 function silhouetteTexture(): CanvasTexture {
+  if (shared) return shared
+  shared = buildSilhouette()
+  return shared
+}
+
+function buildSilhouette(): CanvasTexture {
   const size = 256
   const canvas = document.createElement('canvas')
   canvas.width = size

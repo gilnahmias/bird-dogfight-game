@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { biomeAt, heightAt, hashSeed, normalAt, slopeAt } from './terrain.ts'
+import { biomeAt, heightAt, hashSeed, normalAt, slopeAt, snowAt } from './terrain.ts'
 import { WORLD } from '../game/constants.ts'
 
 const SEED = 'pine-ridge'
@@ -74,4 +74,20 @@ test('the world has both real mountains and real lowland', () => {
   }
   assert.ok(hi > 180, `mountains are too low to fly around: peak ${hi.toFixed(0)}m`)
   assert.ok(lo < 0, `nowhere floods, so there would be no lakes: lowest ${lo.toFixed(0)}m`)
+})
+
+test('snow caps the peaks, spares the cliffs, and never reaches the valleys', () => {
+  // A mountain with no cap is the same grey as the crag below it, and the range
+  // reads flat from the air.
+  assert.equal(snowAt(60, 0.1, 0), 0, 'snow in the valley')
+  assert.equal(snowAt(150, 0.1, 0), 0, 'snow well below the line')
+  assert.ok(snowAt(300, 0.1, 0) > 0.9, 'a summit with no snow on it')
+  // Gradual, not a switch.
+  const shoulder = snowAt(215, 0.1, 0)
+  assert.ok(shoulder > 0 && shoulder < 0.6, `the snow line is a step, not a fade (${shoulder})`)
+  // Cliffs shed it.
+  assert.ok(
+    snowAt(300, 0.9, 0) < snowAt(300, 0.1, 0) * 0.4,
+    'snow is lying on a cliff face as thickly as on a shoulder',
+  )
 })

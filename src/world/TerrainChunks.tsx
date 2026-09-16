@@ -10,7 +10,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { BufferAttribute, BufferGeometry, Color, type Vector3 } from 'three'
-import { biomeFrom, heightAt, moistureAt } from './terrain.ts'
+import { biomeFrom, heightAt, moistureAt, snowAt } from './terrain.ts'
 import { WORLD } from '../game/constants.ts'
 
 const SKIRT_DROP = 60
@@ -30,7 +30,7 @@ function colorFor(h: number, slope: number, moisture: number, out: Color) {
   // Shorelines read as beach, peaks as snow. Both are cheap and both do a lot of
   // work in making the terrain legible from the air.
   if (h > WORLD.waterLevel && h < 6) out.lerp(SAND, 1 - h / 6)
-  if (h > 240) out.lerp(SNOW, Math.min(1, (h - 240) / 90))
+  out.lerp(SNOW, snowAt(h, slope, moisture))
   return out
 }
 

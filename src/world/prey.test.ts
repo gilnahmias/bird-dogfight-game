@@ -13,8 +13,9 @@ import {
   surfaceFor,
   talonPoint,
   valueOf,
+  stockedFish,
 } from './prey.ts'
-import { heightAt, slopeAt, tarnPoolAt } from './terrain.ts'
+import { heightAt, slopeAt, TARN_RADIUS, tarnPoolAt, tarnSitesNear } from './terrain.ts'
 import { findNestSite } from './nest.ts'
 import { T, WORLD } from '../game/constants.ts'
 
@@ -160,4 +161,39 @@ test('a full load of the heaviest prey is a real decision, not an impossible one
   assert.equal(rabbits, 1, 'exactly one rabbit should fit, so taking it is a commitment')
   const mice = Math.floor(T.maxLoad / PREY.mouse.weight)
   assert.ok(mice >= 5, 'small prey should be worth stacking up')
+})
+
+test('every mountain lake holds fish, and they are in the water', () => {
+  // The bug: prey was scattered over a six hundred metre circle and a tarn is a
+  // hundred metres across, so the pool filled with rabbits and the player flew
+  // to a lake to find it empty. A lake has fish in it because it is a lake.
+  for (const seed of ['pine-ridge', 'alpine', 'coastal', 'basin']) {
+    const site = findNestSite(seed)
+    const lakes = tarnSitesNear(site.pos.x, site.pos.z, 900, seed)
+    assert.ok(lakes.length > 0, `${seed}: no lakes near the nest to stock`)
+    const fish = stockedFish(site.pos, seed)
+    for (const lake of lakes) {
+      const mine = fish.filter((f) => Math.hypot(f.pos.x - lake.x, f.pos.z - lake.z) < TARN_RADIUS)
+      assert.ok(mine.length > 0, `${seed}: a lake at ${lake.x.toFixed(0)},${lake.z.toFixed(0)} has no fish`)
+      for (const f of mine) {
+        assert.equal(f.kind, 'fish')
+        assert.ok(
+          heightAt(f.pos.x, f.pos.z, seed) < f.pos.y,
+          `${seed}: a fish is sitting on the bed rather than in the water`,
+        )
+      }
+    }
+  }
+})
+
+test('stocked fish keep their identity, so topping up cannot pile shoals', () => {
+  const site = findNestSite('pine-ridge')
+  const first = stockedFish(site.pos, 'pine-ridge')
+  const again = stockedFish(site.pos, 'pine-ridge')
+  assert.deepEqual(
+    first.map((f) => f.id),
+    again.map((f) => f.id),
+    'the same lake produced different fish the second time it was asked',
+  )
+  assert.equal(new Set(first.map((f) => f.id)).size, first.length, 'two fish share an id')
 })

@@ -10,7 +10,16 @@
  * a scene: what may be caught, what it costs to carry, and what it is worth.
  */
 import { Vector3 } from 'three'
-import { heightAt, jitter, meshHeightAt, moistureAt, slopeAt, tarnPoolAt } from './terrain.ts'
+import {
+  heightAt,
+  jitter,
+  meshHeightAt,
+  moistureAt,
+  slopeAt,
+  TARN_RADIUS,
+  tarnPoolAt,
+  tarnSitesNear,
+} from './terrain.ts'
 import { WORLD } from '../game/constants.ts'
 
 export type PreyKind = 'mouse' | 'fish' | 'rabbit'
@@ -83,6 +92,50 @@ export function surfaceFor(kind: PreyKind, x: number, z: number, seed: string): 
 }
 
 let nextId = 1
+
+/** How many fish each mountain tarn holds. */
+const FISH_PER_TARN = 4
+/** How far out tarns are stocked. */
+const STOCK_RANGE = 900
+
+/**
+ * Stock a mountain lake with fish.
+ *
+ * Scattering prey at random over a six hundred metre circle and hoping some of
+ * it lands in a hundred metre pool does not work: measured, the pool fills up
+ * with land animals long before the scatter ever tries the water, and the player
+ * flew to a lake and found it empty. A lake has fish in it because it is a lake.
+ *
+ * Ids are derived from the tarn rather than counted, so the same fish is the
+ * same fish every time the field is topped up - otherwise every pass over a lake
+ * would stack a fresh shoal on top of the last one.
+ */
+function stockTarn(tarn: { x: number; z: number; level: number }, seed: string): Prey[] {
+  const out: Prey[] = []
+  for (let i = 0; i < FISH_PER_TARN; i++) {
+    const a = jitter(tarn.x + i * 5.7, tarn.z, 21) * Math.PI * 2
+    // Square-rooted so they spread over the pool rather than crowding the middle.
+    const r = Math.sqrt(jitter(tarn.x, tarn.z + i * 3.3, 22)) * TARN_RADIUS * 0.62
+    const x = tarn.x + Math.cos(a) * r
+    const z = tarn.z + Math.sin(a) * r
+    // Only where there is really water: the rim of the basin is dry ground.
+    if (heightAt(x, z, seed) > tarn.level - 1) continue
+    out.push({
+      id: -Math.abs(Math.round(tarn.x * 31 + tarn.z * 17) * 8 + i) - 1,
+      kind: 'fish',
+      pos: new Vector3(x, tarn.level, z),
+      heading: jitter(x, z, 23) * Math.PI * 2,
+      phase: jitter(x, z, 24) * Math.PI * 2,
+      caught: false,
+    })
+  }
+  return out
+}
+
+/** Every fish that belongs in the lakes around a point. */
+export function stockedFish(centre: Vector3, seed: string, radius = STOCK_RANGE): Prey[] {
+  return tarnSitesNear(centre.x, centre.z, radius, seed).flatMap((tarn) => stockTarn(tarn, seed))
+}
 
 /**
  * Populate a ring around a point, skipping anywhere the ground says no.

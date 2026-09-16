@@ -15,7 +15,7 @@
  * lake at 180m, so each tarn carries its own small surface.
  */
 import { Vector3 } from 'three'
-import { heightAt, meshHeightAt, TARN_RADIUS, tarnSitesNear } from './terrain.ts'
+import { meshHeightAt, TARN_RADIUS, tarnSitesNear } from './terrain.ts'
 import { WORLD } from '../game/constants.ts'
 
 export type Tarn = {
@@ -34,38 +34,6 @@ export type Tarn = {
 
 const SEARCH_RADIUS = 3400
 
-/**
- * Steepest way down from the outlet, looking only outward.
- *
- * The pool floor is lower than its own rim, so an unconstrained search at the
- * outlet points straight back into the tarn - and the outflow would run into the
- * lake it just left. Only directions leading away from the centre count.
- */
-function outwardDescent(x: number, z: number, away: Vector3, seed: string) {
-  const here = heightAt(x, z, seed)
-  let drop = -Infinity
-  let angle = 0
-  for (let i = 0; i < 24; i++) {
-    const a = (i / 24) * Math.PI * 2
-    const dx = Math.cos(a)
-    const dz = Math.sin(a)
-    if (dx * away.x + dz * away.z < 0.25) continue // heading back into the pool
-    // Judged over a few hundred metres rather than the first forty. Outside
-    // nearly every outlet the ground RISES for ten to twenty metres before it
-    // falls away, so the nearest sample alone picks whichever way happens to
-    // hump least and can send the stream the wrong way round the hill.
-    let d = 0
-    for (const at of [40, 90, 150]) {
-      d += here - heightAt(x + dx * at, z + dz * at, seed)
-    }
-    if (d > drop) {
-      drop = d
-      angle = a
-    }
-  }
-  return { drop, dir: new Vector3(Math.cos(angle), 0, Math.sin(angle)).normalize() }
-}
-
 export function findTarns(seed: string, centre: Vector3, max = 24): Tarn[] {
   const tarns: Tarn[] = []
   for (const site of tarnSitesNear(centre.x, centre.z, SEARCH_RADIUS, seed)) {
@@ -76,7 +44,6 @@ export function findTarns(seed: string, centre: Vector3, max = 24): Tarn[] {
       site.level,
       site.z + toRim.z * TARN_RADIUS,
     )
-    const descent = outwardDescent(outlet.x, outlet.z, toRim, seed)
     tarns.push({
       centre: new Vector3(site.x, site.level, site.z),
       level: site.level,
@@ -88,7 +55,15 @@ export function findTarns(seed: string, centre: Vector3, max = 24): Tarn[] {
       radius: TARN_RADIUS * 1.04,
       outlet,
       outletGround: site.level + 0.4,
-      outflow: descent.drop > 0 ? descent.dir : toRim,
+      /*
+        Straight out through the notch the terrain has cut for it.
+
+        This used to search for the steepest way down from the outlet, which sent
+        the stream off across the hillside at an angle to the channel the ground
+        actually offers - so the water ran over rock instead of through its own
+        outflow.
+      */
+      outflow: toRim,
     })
   }
   return tarns

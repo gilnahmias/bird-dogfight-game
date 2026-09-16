@@ -24,11 +24,22 @@ export type Waterfall = {
   dir: Vector3
   width: number
   /**
-   * The line the water actually takes, lip to foot. Cliffs are not flat, so a
+   * The line the water actually takes, lake to foot. Cliffs are not flat, so a
    * straight sheet between the two ends cuts through any bulge in between. This
    * follows the rock, and never flows uphill.
    */
   path: Vector3[]
+  /**
+   * How many points of the path are the stream leaving the lake, before the
+   * water goes over the brink.
+   *
+   * The sheet used to start at the brink, which is ten to twenty metres out
+   * across the rim from the pool - so the fall hung in the hillside with a gap
+   * between it and the lake it supposedly came from. These points carry the
+   * water over the rim, and they are drawn narrower, because that stretch is a
+   * stream and not yet a fall.
+   */
+  lead: number
 }
 
 /** Step size when walking the fall line out from the lip. */
@@ -37,6 +48,10 @@ const STEP_OUT = 5
 const MAX_STEPS = 46
 /** How far out from the outlet to look for the brink the water goes over. */
 const BRINK_SEARCH = 70
+/** How far back into the lake the stream is drawn, so the two are joined. */
+const LEAD_INTO_POOL = 14
+/** A fall of more than this over one step means the water has left the ground. */
+const BRINK_DROP = 2.5
 /** A spill shorter than this is a trickle, not a waterfall. */
 export const MIN_DROP = 9
 
@@ -146,66 +161,68 @@ function ground(x: number, z: number, seed: string): number {
 }
 
 function fallFromTarn(tarn: Tarn, seed: string): Waterfall | null {
-  // The crest of the rim, not the pool surface: water goes OVER the lip, and a
-  // sheet starting at the surface begins buried under the rim in front of it.
-  const lip = tarn.outletGround
-
   const heading = Math.atan2(tarn.outflow.z, tarn.outflow.x)
 
   /*
-    Start where the ground actually gives way, not at the pool edge.
+    First the stream: from the waterline, out through the notch the outflow has
+    cut in the rim, to the brink where the ground gives way.
 
-    Water leaves a tarn over a lip that is nearly level for a few metres before
-    it drops, and a march that insists on descending every step died on that flat
-    stretch - every tarn in the world was rejected. Walking out to the brink
-    first is also where a real fall visibly begins.
+    Starting at the WATERLINE and not at a fixed distance back matters, because
+    the basin shelves: a point ten metres inside the rim can still be five metres
+    of dry ground above the pool, and the stream would begin buried in the shore.
   */
-  /*
-    Find the brink: the point where the water genuinely starts to fall.
+  let leadStart = 0
+  for (let d = -2; d > -LEAD_INTO_POOL; d -= 2) {
+    const x = tarn.outlet.x + tarn.outflow.x * d
+    const z = tarn.outlet.z + tarn.outflow.z * d
+    if (ground(x, z, seed) < tarn.level - 0.3) leadStart = d
+  }
 
-    It is NOT the pool's edge. Measured on every tarn in the world, the ground
-    rises for the first ten to twenty metres past the outlet - the outflow runs
-    over the rim, which is a hump - before dropping away. Starting the sheet at
-    the outlet buries it in that hump, and giving up the moment the ground climbs
-    rejects every tarn there is. So walk out across the hump and begin where the
-    ground is back below the rim and still going down.
-  */
-  const rim = tarn.outletGround
-  let startX = tarn.outlet.x
-  let startZ = tarn.outlet.z
-  let startY = rim
-  let foundBrink = false
-  for (let d = 0; d <= BRINK_SEARCH && !foundBrink; d += STEP_OUT) {
+  const lead: Vector3[] = []
+  let surface = tarn.level
+  let brinkX = tarn.outlet.x
+  let brinkZ = tarn.outlet.z
+  for (let d = leadStart; d <= BRINK_SEARCH; d += STEP_OUT) {
     const x = tarn.outlet.x + tarn.outflow.x * d
     const z = tarn.outlet.z + tarn.outflow.z * d
     const here = ground(x, z, seed)
-    if (here > rim + 0.2) continue // still climbing the rim
+    // Inside the pool the water is at the waterline, whatever the bed does.
+    if (d >= 0) surface = Math.min(surface, here + 0.3)
+    lead.push(new Vector3(x, surface, z))
+    brinkX = x
+    brinkZ = z
+    // The brink: the ground has started to fall away faster than a stream bed.
     const ahead = ground(x + tarn.outflow.x * STEP_OUT, z + tarn.outflow.z * STEP_OUT, seed)
-    if (ahead >= here - 0.4) continue // not falling away yet
-    startX = x
-    startZ = z
-    startY = here
-    foundBrink = true
+    if (d >= 0 && here - ahead > BRINK_DROP) break
   }
-  if (!foundBrink) return null
+  if (lead.length === 0) return null
 
-  const traced = traceFallLine(startX, startZ, startY, heading, seed)
+  const lip = lead[lead.length - 1].y
+  const traced = traceFallLine(brinkX, brinkZ, lip, heading, seed)
   if (!traced) return null
 
-  const drop = startY - traced.base.y
+  const drop = lip - traced.base.y
   if (drop < MIN_DROP) return null
 
+  const path = [...lead, ...traced.path]
+  // One pass to make the whole line monotone. The stream and the fall are traced
+  // separately and meet at the brink, and that join is the one place where the
+  // second could start higher than the first left off - which draws water
+  // climbing back up over the lip.
+  for (let i = 1; i < path.length; i++) path[i].y = Math.min(path[i].y, path[i - 1].y)
+
   return {
-    top: new Vector3(tarn.outlet.x, lip, tarn.outlet.z),
+    top: path[0].clone(),
     base: traced.base,
     dir: traced.dir,
-    // A bigger pool spills a wider fall.
-    // Wide enough to see from a distance. A fifteen metre ribbon on a green
-    // hillside a kilometre away is a thread; the player could not find the falls
-    // at all, and the first thing that has to be true is that they read as
-    // water from the air.
+    /*
+      A bigger pool spills a wider fall, and all of them are wide: a fifteen
+      metre ribbon on a green hillside a kilometre away is a thread, and the
+      player could not find the falls at all.
+    */
     width: 12 + tarn.radius * 0.34,
-    path: traced.path,
+    path,
+    lead: lead.length,
   }
 }
 

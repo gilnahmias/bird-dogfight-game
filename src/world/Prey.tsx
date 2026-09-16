@@ -8,7 +8,7 @@
  */
 import { useCallback, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { Group, Vector3 } from 'three'
+import { DoubleSide, Group, Vector3 } from 'three'
 import type { BirdState } from '../flight/physics.ts'
 import { FWD, UP } from '../flight/physics.ts'
 import {
@@ -17,6 +17,7 @@ import {
   loadOf,
   type Prey,
   spawnPreyAround,
+  stockedFish,
   talonPoint,
   valueOf,
 } from './prey.ts'
@@ -62,12 +63,30 @@ export function PreyField({
 
   const sync = useCallback(() => setRendered([...alive.current, ...carried.current]), [])
 
+  /*
+    Make sure every lake in range holds its fish.
+
+    The scatter alone left lakes empty - a hundred metre pool inside a six
+    hundred metre circle almost never wins the draw, and the pool of animals
+    fills up with rabbits first. Stocked fish carry ids derived from their tarn,
+    so re-stocking on every top-up cannot pile a second shoal on the first, and
+    one already caught stays caught.
+  */
+  const stockLakes = useCallback(
+    (current: Prey[]) => {
+      const known = new Set([...current, ...carried.current].map((p) => p.id))
+      const missing = stockedFish(bird.pos, seed).filter((fish) => !known.has(fish.id))
+      return missing.length ? current.concat(missing) : current
+    },
+    [bird, seed],
+  )
+
   useFrame(() => {
     const state = useGame.getState()
 
     if (!seeded.current) {
       seeded.current = true
-      alive.current = spawnPreyAround(bird.pos, seed, POOL, RANGE)
+      alive.current = stockLakes(spawnPreyAround(bird.pos, seed, POOL, RANGE))
       lastTopUp.current.copy(bird.pos)
       sync()
     }
@@ -83,6 +102,7 @@ export function PreyField({
           spawnPreyAround(bird.pos, seed, missing, RANGE, REFRESH_AT * 0.6),
         )
       }
+      alive.current = stockLakes(alive.current)
       sync()
     }
 
@@ -190,20 +210,67 @@ export function PreyField({
 
 const FUR = '#8a6b4a'
 const FUR_DARK = '#5d4630'
-const SCALE = '#b9c6cf'
+const SCALE = '#8fa7b4'
+const BELLY = '#e2e8ea'
+const FIN = '#6d8592'
 
 function Animal({ kind }: { kind: Prey['kind'] }) {
   if (kind === 'fish') {
+    /*
+      A trout, not a pill.
+
+      The old one was a squashed sphere with a cone stuck on the back, and from
+      the air it read as a floating bead. What makes a fish a fish, seen from
+      above, is the outline: a body that tapers both ways, a tail that forks, and
+      fins breaking the line of it.
+    */
     return (
       <group>
-        <mesh scale={[0.5, 0.32, 1]}>
-          <sphereGeometry args={[0.55, 8, 6]} />
+        {/* body, tapering to the head and to the wrist of the tail */}
+        <mesh scale={[0.42, 0.3, 1]}>
+          <sphereGeometry args={[0.62, 10, 7]} />
+          <meshStandardMaterial color={SCALE} roughness={0.32} metalness={0.4} flatShading />
+        </mesh>
+        {/* paler belly, so it reads differently from below */}
+        <mesh position={[0, -0.07, 0.02]} scale={[0.34, 0.16, 0.86]}>
+          <sphereGeometry args={[0.6, 8, 6]} />
+          <meshStandardMaterial color={BELLY} roughness={0.5} />
+        </mesh>
+        {/* the wrist, narrowing before the tail */}
+        <mesh position={[0, 0, 0.5]} scale={[0.2, 0.22, 0.4]}>
+          <sphereGeometry args={[0.4, 6, 5]} />
           <meshStandardMaterial color={SCALE} roughness={0.35} metalness={0.35} flatShading />
         </mesh>
-        <mesh position={[0, 0, 0.62]} rotation={[0, 0, Math.PI / 2]}>
-          <coneGeometry args={[0.3, 0.42, 4]} />
-          <meshStandardMaterial color={SCALE} roughness={0.4} metalness={0.3} flatShading />
+        {/* forked tail: two thin blades rather than a cone */}
+        {[0.42, -0.42].map((tilt) => (
+          <mesh key={tilt} position={[0, tilt * 0.22, 0.76]} rotation={[tilt * 0.7, 0, 0]}>
+            <coneGeometry args={[0.2, 0.44, 3]} />
+            <meshStandardMaterial
+              color={FIN}
+              roughness={0.4}
+              metalness={0.2}
+              flatShading
+              side={DoubleSide}
+            />
+          </mesh>
+        ))}
+        {/* dorsal fin - the bit that breaks the surface */}
+        <mesh position={[0, 0.17, 0.04]} rotation={[0.25, 0, 0]} scale={[0.1, 1, 1]}>
+          <coneGeometry args={[0.17, 0.3, 3]} />
+          <meshStandardMaterial color={FIN} roughness={0.45} flatShading side={DoubleSide} />
         </mesh>
+        {/* pectorals */}
+        {[-1, 1].map((side) => (
+          <mesh
+            key={side}
+            position={[side * 0.13, -0.03, -0.12]}
+            rotation={[0, 0, side * 0.5]}
+            scale={[1, 0.12, 0.7]}
+          >
+            <coneGeometry args={[0.12, 0.26, 3]} />
+            <meshStandardMaterial color={FIN} roughness={0.45} flatShading side={DoubleSide} />
+          </mesh>
+        ))}
       </group>
     )
   }

@@ -179,19 +179,25 @@ export const lesserCoverts = (): Shape[] =>
 export const primaries = (): Shape[] =>
   row({
     count: 7,
-    // In the HAND's own frame, spread along its outer half. The whole manus -
-    // spar and feathers together - is one rigid piece, so no joint can pivot
-    // between a quill and the bone it grows out of.
-    spanFrom: 1.28,
-    spanTo: 1.88,
-    chordFrom: -0.1,
-    chordTo: 0.12,
-    lengthFrom: 1.62,
-    lengthTo: 1.05,
-    width: 0.26,
-    angleFrom: 1.14,
-    angleTo: 2.12,
-    sweep: 0.16,
+    /*
+      In the HAND's own frame, rooted along its outer half and sweeping OUTWARD
+      and back.
+
+      The angles used to be positive, which turned the whole fan inboard: every
+      primary lay back across the arm, the hand spar was the only thing making
+      the outer wing, and the wingtip read as a bare brown stick. On a raptor the
+      primaries ARE the outer third of the wing.
+    */
+    spanFrom: 1.32,
+    spanTo: 1.86,
+    chordFrom: -0.12,
+    chordTo: 0.14,
+    lengthFrom: 1.15,
+    lengthTo: 1.62,
+    width: 0.3,
+    angleFrom: -0.45,
+    angleTo: -1.5,
+    sweep: 0.18,
   })
 
 /** The alula, the small thumb tuft on the leading edge of the wrist. */

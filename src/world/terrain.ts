@@ -80,19 +80,35 @@ function cacheFor(seed: string) {
   return m
 }
 
-/** Lowest and highest points of the ring the pool would be held in. */
+/**
+ * The ring the pool is held in: how low it gets, how uneven it is, and which way
+ * the water leaves.
+ *
+ * The way out is NOT simply the lowest point on the rim. Measured along the
+ * lowest rim of a real tarn, the ground climbed forty metres over the next sixty
+ * - the low point was a saddle into the next hill, and cutting the outflow
+ * through it would have meant a canyon. The escape direction is the one that
+ * keeps going DOWN once it is over the lip.
+ */
 function rimOf(x: number, z: number, seed: string) {
   let lowest = Infinity
   let highest = -Infinity
   let angle = 0
+  let bestEscape = Infinity
   for (let i = 0; i < 16; i++) {
     const a = (i / 16) * Math.PI * 2
-    const h = bareHeightAt(x + Math.cos(a) * TARN_RADIUS, z + Math.sin(a) * TARN_RADIUS, seed)
-    if (h < lowest) {
-      lowest = h
+    const dx = Math.cos(a)
+    const dz = Math.sin(a)
+    const h = bareHeightAt(x + dx * TARN_RADIUS, z + dz * TARN_RADIUS, seed)
+    if (h < lowest) lowest = h
+    if (h > highest) highest = h
+    const beyond = bareHeightAt(x + dx * (TARN_RADIUS + 70), z + dz * (TARN_RADIUS + 70), seed)
+    // The lip counts, and so does whether the ground keeps falling past it.
+    const escape = h + Math.max(0, beyond - h) * 1.5
+    if (escape < bestEscape) {
+      bestEscape = escape
       angle = a
     }
-    if (h > highest) highest = h
   }
   return { lowest, relief: highest - lowest, angle }
 }
@@ -158,6 +174,9 @@ function tarnCarve(x: number, z: number, h: number, seed: string): number {
     for (let dx = -1; dx <= 1; dx++) {
       const site = tarnSite(cellX + dx, cellZ + dz, seed)
       if (!site) continue
+      // The outflow channel runs well beyond the basin, so it is cut first and
+      // outside the radius test - which is where it lives.
+      lowered = Math.min(lowered, outflowNotch(x, z, site, h))
       const r = Math.hypot(x - site.x, z - site.z)
       if (r >= TARN_RADIUS) continue
       // Level toward the pan inside, easing back to the untouched ground at the
@@ -167,6 +186,50 @@ function tarnCarve(x: number, z: number, h: number, seed: string): number {
     }
   }
   return h - lowered
+}
+
+/** How far the outflow channel runs before it merges back into the hillside. */
+const CHANNEL_LENGTH = 58
+/**
+ * Half width of that channel.
+ *
+ * Wide on purpose: the terrain is drawn on a grid a few metres across, so a
+ * narrow notch is simply not in the mesh the player sees - measured, the stream
+ * still ran a metre and a half inside the hillside with a seven metre channel.
+ */
+const CHANNEL_HALF = 12
+/**
+ * How steeply its bed falls, per metre.
+ *
+ * Steep enough to stay below the wobble in the ground it is cut through. A
+ * gentle bed left bumps standing proud of it, and the stream drawn along the
+ * channel then ran a couple of metres inside them.
+ */
+const CHANNEL_FALL = 0.32
+
+/**
+ * Cut the notch the water leaves through.
+ *
+ * Measured on every tarn in the world, the ground RISES for the first ten to
+ * twenty metres past the outlet: the outflow has to cross the rim, which is a
+ * hump. Everything downstream fought that hump - the waterfall search had to go
+ * hunting for a brink beyond it, and the stream drawn from the lake to the fall
+ * ran through solid rock. A lake with an outflow has cut itself a channel
+ * through its own lip, so the terrain has one.
+ */
+function outflowNotch(x: number, z: number, site: TarnSite, h: number): number {
+  const ax = Math.cos(site.outletAngle)
+  const az = Math.sin(site.outletAngle)
+  const ox = x - (site.x + ax * TARN_RADIUS)
+  const oz = z - (site.z + az * TARN_RADIUS)
+  const along = ox * ax + oz * az
+  if (along < -TARN_RADIUS * 0.5 || along > CHANNEL_LENGTH) return h
+  const lateral = Math.abs(-ox * az + oz * ax)
+  const across = 1 - smoothstep(CHANNEL_HALF * 0.35, CHANNEL_HALF, lateral)
+  if (across <= 0) return h
+  // Below the waterline at the lip, and falling away from there.
+  const bed = site.level - 1.4 - Math.max(0, along) * CHANNEL_FALL
+  return h + (bed - h) * across
 }
 
 /**
@@ -284,6 +347,29 @@ export function normalAt(x: number, z: number, seed: string, out?: [number, numb
 export function slopeAt(x: number, z: number, seed: string): number {
   const n = normalAt(x, z, seed)
   return 1 - n[1]
+}
+
+/**
+ * How much snow lies at a point, 0 to 1.
+ *
+ * Snow is what makes a mountain read AS a mountain from the air: without a cap
+ * the peaks are the same grey as the crags below them and the range flattens
+ * out. Three things matter and all three are cheap:
+ *
+ *   the line wanders, because a fixed contour reads as a bathtub ring
+ *   it thickens with height rather than switching on
+ *   steep faces shed it, so cliffs stay dark rock and only the shoulders hold
+ */
+const SNOW_LINE = 196
+const SNOW_DEPTH = 62
+
+export function snowAt(h: number, slope: number, moisture: number): number {
+  // Wetter ground carries its snow further down the hill.
+  const line = SNOW_LINE - moisture * 34
+  const lying = Math.min(1, Math.max(0, (h - line) / SNOW_DEPTH))
+  // Nothing sticks to a cliff.
+  const holds = 1 - smoothstep(0.42, 0.78, slope)
+  return lying * holds
 }
 
 /** Moisture field. Cheap - three octaves - and it is what separates forest from grass. */

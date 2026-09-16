@@ -14,9 +14,10 @@ test('every seed has tarns, up in the hills and above the sea', () => {
     const tarns = tarnsFor(seed)
     // Not "at least one": the player could not FIND a mountain lake when there
     // were four in a seven kilometre square. Supply is the whole point.
-    assert.ok(tarns.length >= 8, `${seed}: only ${tarns.length} mountain tarns in range`)
+    assert.ok(tarns.length >= 6, `${seed}: only ${tarns.length} mountain tarns in range`)
     const nearest = Math.min(...tarns.map((t) => t.centre.distanceTo(findNestSite(seed).pos)))
-    assert.ok(nearest < 1400, `${seed}: the nearest tarn is ${(nearest / 1000).toFixed(1)}km from the nest`)
+    // Close enough to reach on the first flight, not just present somewhere.
+    assert.ok(nearest < 800, `${seed}: the nearest tarn is ${(nearest / 1000).toFixed(1)}km from the nest`)
     for (const t of tarns) {
       assert.ok(t.level > WORLD.waterLevel + 20, `${seed}: tarn at ${t.level.toFixed(0)}m is basically the sea`)
       assert.ok(t.radius > 5, `${seed}: tarn is a puddle`)

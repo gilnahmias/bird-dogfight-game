@@ -8,7 +8,7 @@
  */
 import { useCallback, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { DoubleSide, Group, Vector3 } from 'three'
+import { DoubleSide, Group, type Mesh, Vector3 } from 'three'
 import type { BirdState } from '../flight/physics.ts'
 import { FWD, UP } from '../flight/physics.ts'
 import {
@@ -16,18 +16,28 @@ import {
   canCatch,
   loadOf,
   type Prey,
+  GAIT,
+  hopLift,
   spawnPreyAround,
+  stepPrey,
   stockedFish,
   surfaceFor,
   talonPoint,
   valueOf,
 } from './prey.ts'
 import { useGame } from '../game/store.ts'
+import { meshHeightAt } from './terrain.ts'
+import { WORLD } from '../game/constants.ts'
 import { input } from '../flight/input.ts'
 import { T } from '../game/constants.ts'
 
-/** How many animals are alive around the bird at once. */
-const POOL = 46
+/**
+ * How many animals are alive around the bird at once.
+ *
+ * Raised with the rabbits in mind: at forty-six, a nest could have four of them
+ * within four hundred metres, and they are the animal a player goes looking for.
+ */
+const POOL = 64
 /** They are kept inside this radius, and topped up beyond this one. */
 const RANGE = 620
 const REFRESH_AT = 380
@@ -85,7 +95,7 @@ export function PreyField({
     [bird, seed],
   )
 
-  useFrame(() => {
+  useFrame((_, frameDelta) => {
     const state = useGame.getState()
 
     if (!seeded.current) {
@@ -191,17 +201,52 @@ export function PreyField({
       sync()
     }
 
+    // Dev builds only: hand the live animals to the bridge, so a test can find a
+    // snake and fly at it. One assignment of an existing reference.
+    if (import.meta.env.DEV) {
+      const bridge = (window as unknown as { game?: { prey?: Prey[]; carried?: Prey[] } }).game
+      if (bridge) {
+        bridge.prey = alive.current
+        bridge.carried = carried.current
+      }
+    }
+
     // --- Animate -----------------------------------------------------------
     const time = performance.now() / 1000
+    const dt = Math.min(frameDelta, 0.1)
     for (const prey of alive.current) {
+      // Rabbits and snakes actually go somewhere; the rest only animate in place.
+      stepPrey(prey, dt, time, seed)
       const group = groups.current.get(prey.id)
       if (!group) continue
       if (prey.kind === 'fish') {
         // Fish hold station at the surface and flick.
         group.position.set(prey.pos.x, prey.pos.y + Math.sin(time * 2 + prey.phase) * 0.12, prey.pos.z)
         group.rotation.y = prey.heading + Math.sin(time * 1.6 + prey.phase) * 0.5
+      } else if (prey.kind === 'rabbit') {
+        // Up in an arc while it travels, sat still in between.
+        group.position.set(prey.pos.x, prey.pos.y + hopLift(prey, time) * GAIT.rabbit.height, prey.pos.z)
+        group.rotation.y = prey.heading
+      } else if (prey.kind === 'snake') {
+        /*
+          Lying ALONG the ground, facing where it is going.
+
+          The body is nearly four metres long and trails straight back, so held
+          level it only touches the ground at its head: on a hillside the head
+          sank into the rise and the tail stuck out into the air. Pitched to the
+          ground between head and tail, the whole body lies on the slope. The
+          body's wave animates itself.
+        */
+        const backX = prey.pos.x + Math.sin(prey.heading) * SNAKE_LENGTH
+        const backZ = prey.pos.z + Math.cos(prey.heading) * SNAKE_LENGTH
+        const tailY = meshHeightAt(backX, backZ, seed, WORLD.lodSegments[0])
+        group.position.set(prey.pos.x, prey.pos.y + 0.05, prey.pos.z)
+        group.rotation.order = 'YXZ'
+        // Negative: a positive pitch swings the tail (local +Z) DOWN, so a tail
+        // resting on higher ground needs the nose-down sense. Checked, not assumed.
+        group.rotation.set(-Math.atan2(tailY - prey.pos.y, SNAKE_LENGTH), prey.heading, 0)
       } else {
-        // Land animals hop, which is what makes them findable from the air.
+        // Mice scurry in place, which is what makes them findable from the air.
         const hop = Math.max(0, Math.sin(time * 2.4 + prey.phase))
         group.position.set(prey.pos.x, prey.pos.y + hop * 0.5, prey.pos.z)
         group.rotation.y = prey.heading + Math.sin(time * 0.6 + prey.phase) * 0.8
@@ -252,7 +297,70 @@ const SCALE = '#8fa7b4'
 const BELLY = '#e2e8ea'
 const FIN = '#6d8592'
 
+// Olive with dark bands: close enough to the grass to be a real animal, far
+// enough from it that the banding catches the eye from the air.
+const SNAKE = '#8c8a3c'
+const SNAKE_DARK = '#2f3419'
+/** Body segments, head first. */
+const SNAKE_SEGMENTS = 11
+const SEGMENT_GAP = 0.26
+const SNAKE_SCALE = 1.35
+/** Head to tail, in metres, for laying the body on a slope. */
+const SNAKE_LENGTH = SNAKE_SEGMENTS * SEGMENT_GAP * SNAKE_SCALE
+
+/**
+ * A snake: a tapering chain of segments, with a wave running down it.
+ *
+ * The wave is the whole point - a snake that slides along the ground stiff is a
+ * stick being dragged, and the sideways travelling curve is what reads as
+ * slithering even at a glance from fifty metres up. The segments animate
+ * themselves in their own frame loop; the field only moves the snake as a whole.
+ */
+function Snake() {
+  const segments = useRef<(Mesh | null)[]>([])
+
+  useFrame(() => {
+    const time = performance.now() / 1000
+    for (let i = 0; i < SNAKE_SEGMENTS; i++) {
+      const segment = segments.current[i]
+      if (!segment) continue
+      // The head leads the wave and barely moves; the tail swings widest.
+      const reach = 0.08 + (i / SNAKE_SEGMENTS) * 0.26
+      segment.position.x = Math.sin(time * 7 - i * 0.75) * reach
+      segment.position.z = i * SEGMENT_GAP
+    }
+  })
+
+  return (
+    <group scale={SNAKE_SCALE}>
+      {Array.from({ length: SNAKE_SEGMENTS }, (_, i) => {
+        const taper = 1 - (i / SNAKE_SEGMENTS) * 0.72
+        const banded = i % 3 === 1
+        return (
+          <mesh
+            key={i}
+            ref={(node) => {
+              segments.current[i] = node
+            }}
+            scale={[0.16 * taper, 0.11 * taper, 0.2]}
+          >
+            <sphereGeometry args={[1, 7, 5]} />
+            <meshStandardMaterial color={banded ? SNAKE_DARK : SNAKE} roughness={0.7} flatShading />
+          </mesh>
+        )
+      })}
+      {/* head: a flattened wedge a little wider than the neck */}
+      <mesh position={[0, 0.02, -0.18]} scale={[0.19, 0.1, 0.24]}>
+        <sphereGeometry args={[1, 8, 6]} />
+        <meshStandardMaterial color={SNAKE_DARK} roughness={0.6} flatShading />
+      </mesh>
+    </group>
+  )
+}
+
 function Animal({ kind }: { kind: Prey['kind'] }) {
+  if (kind === 'snake') return <Snake />
+
   if (kind === 'fish') {
     /*
       A trout, not a pill.

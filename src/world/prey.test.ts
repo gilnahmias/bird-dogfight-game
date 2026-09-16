@@ -14,6 +14,9 @@ import {
   talonPoint,
   valueOf,
   stockedFish,
+  GAIT,
+  standable,
+  stepPrey,
 } from './prey.ts'
 import { heightAt, slopeAt, TARN_RADIUS, tarnPoolAt, tarnSitesNear } from './terrain.ts'
 import { findNestSite } from './nest.ts'
@@ -196,4 +199,73 @@ test('stocked fish keep their identity, so topping up cannot pile shoals', () =>
     'the same lake produced different fish the second time it was asked',
   )
   assert.equal(new Set(first.map((f) => f.id)).size, first.length, 'two fish share an id')
+})
+
+// --- Plenty, and moving ------------------------------------------------------
+
+test('there are plenty of rabbits near every nest, and snakes too', () => {
+  for (const seed of ['pine-ridge', 'alpine', 'coastal', 'basin']) {
+    const nest = findNestSite(seed).pos
+    const pool = spawnPreyAround(nest, seed, 64, 620)
+    const rabbits = pool.filter((p) => p.kind === 'rabbit').length
+    const snakes = pool.filter((p) => p.kind === 'snake').length
+    assert.ok(rabbits >= 20, `${seed}: only ${rabbits} rabbits around the nest`)
+    assert.ok(snakes >= 3, `${seed}: only ${snakes} snakes around the nest`)
+  }
+})
+
+test('the open sea cannot crowd the land animals out of the pool', () => {
+  for (const seed of ['pine-ridge', 'basin']) {
+    const nest = findNestSite(seed).pos
+    const pool = spawnPreyAround(nest, seed, 64, 620)
+    const seaFish = pool.filter((p) => p.kind === 'fish' && tarnPoolAt(p.pos.x, p.pos.z, seed) === null)
+    assert.ok(seaFish.length <= 64 * 0.2, `${seed}: ${seaFish.length} of 64 animals are fish in the sea`)
+  }
+})
+
+test('a snake moves along the ground and never leaves ground it could stand on', () => {
+  const nest = findNestSite(SEED).pos
+  const snake = spawnPreyAround(nest, SEED, 64, 620).find((p) => p.kind === 'snake')
+  assert.ok(snake, 'no snake to test')
+  const start = snake.pos.clone()
+  let travelled = 0
+  for (let i = 0; i < 60 * 30; i++) {
+    const before = snake.pos.clone()
+    stepPrey(snake, 1 / 60, i / 60, SEED)
+    // Along the ground, not through it: climbing a slope adds height, not speed.
+    travelled += Math.hypot(snake.pos.x - before.x, snake.pos.z - before.z)
+    assert.ok(standable(snake.pos.x, snake.pos.z, SEED), `the snake wandered off standable ground at step ${i}`)
+    const surface = surfaceFor('snake', snake.pos.x, snake.pos.z, SEED)
+    assert.ok(Math.abs(snake.pos.y - surface) < 1e-6, 'the snake is floating or buried')
+  }
+  assert.ok(travelled > 20, `in thirty seconds the snake moved ${travelled.toFixed(1)}m`)
+  assert.ok(snake.pos.distanceTo(start) > 3, 'it moved, but went nowhere')
+  // Slow enough for a braking raptor to take.
+  assert.ok(travelled / 30 <= GAIT.snake.speed + 1e-6, 'a snake that outruns a raptor is not prey')
+})
+
+test('a rabbit hops and then sits, rather than gliding', () => {
+  const nest = findNestSite(SEED).pos
+  const rabbit = spawnPreyAround(nest, SEED, 64, 620).find((p) => p.kind === 'rabbit')
+  assert.ok(rabbit, 'no rabbit to test')
+  let movingFrames = 0
+  let stillFrames = 0
+  for (let i = 0; i < 60 * 12; i++) {
+    const before = rabbit.pos.clone()
+    stepPrey(rabbit, 1 / 60, i / 60, SEED)
+    if (before.distanceTo(rabbit.pos) > 1e-6) movingFrames++
+    else stillFrames++
+  }
+  assert.ok(movingFrames > 0, 'the rabbit never moved')
+  assert.ok(stillFrames > movingFrames, 'a rabbit should spend more time sitting than hopping')
+})
+
+test('an animal in the talons does not wander off', () => {
+  const nest = findNestSite(SEED).pos
+  const snake = spawnPreyAround(nest, SEED, 64, 620).find((p) => p.kind === 'snake')
+  assert.ok(snake)
+  snake.caught = true
+  const at = snake.pos.clone()
+  for (let i = 0; i < 120; i++) stepPrey(snake, 1 / 60, i / 60, SEED)
+  assert.ok(snake.pos.equals(at), 'a caught snake kept slithering')
 })

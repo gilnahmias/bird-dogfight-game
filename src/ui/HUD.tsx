@@ -15,8 +15,21 @@ import { T } from '../game/constants.ts'
 import { tarnSitesNear } from '../world/terrain.ts'
 
 export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed: string }) {
-  const { airspeed, altitudeAgl, climbRate, lift, talons, perched, dead, load, carried, banked } =
-    useGame()
+  const {
+    airspeed,
+    altitudeAgl,
+    climbRate,
+    lift,
+    talons,
+    perched,
+    dead,
+    load,
+    carried,
+    banked,
+    threat,
+    threatBearing,
+    rivalsBeaten,
+  } = useGame()
 
   return (
     <div className="hud">
@@ -61,8 +74,14 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
 
       {perched && !dead && <div className="perched">IN THE NEST &middot; press SPACE to launch</div>}
 
+      {threat !== 'none' && !dead && <ThreatWarning threat={threat} bearing={threatBearing} />}
+
       {carried > 0 && !dead && <Pointer target={nest} label="nest" bird={bird} tone="home" />}
       {carried === 0 && !dead && <LakePointer bird={bird} seed={seed} />}
+
+      {rivalsBeaten > 0 && (
+        <div className="rivals-beaten">rivals beaten {rivalsBeaten}</div>
+      )}
 
       {dead && (
         <div className="dead">
@@ -76,7 +95,9 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
         <span><b>&darr;</b> nose up</span>
         <span><b>&uarr;</b> nose down</span>
         <span><b>space</b> brake &amp; talons</span>
+        <span><b>x</b> drop</span>
         <span>catch prey low, bank it at the nest</span>
+        <span>beat a rival by diving on it from above</span>
       </div>
     </div>
   )
@@ -169,6 +190,27 @@ function LakePointer({ bird, seed }: { bird: BirdState; seed: string }) {
 
 /** How far to look for a lake to point at. Beyond this, it is not news. */
 const LAKE_SEARCH = 3000
+
+/**
+ * The warning that a rival is working on you.
+ *
+ * Two stages, because the fight is meant to be winnable by reading it. A rival
+ * climbs before it dives and that climb is the warning: the player who looks up
+ * and climbs too, or turns and gets speed, wins the exchange. A dive that
+ * arrived out of nowhere would just be a tax.
+ */
+function ThreatWarning({ threat, bearing }: { threat: 'watching' | 'diving'; bearing: number }) {
+  const diving = threat === 'diving'
+  return (
+    <div className={`threat${diving ? ' diving' : ''}`}>
+      <div className="threat-arrow" style={{ transform: `rotate(${bearing}rad)` }}>
+        &uarr;
+      </div>
+      <div className="threat-text">{diving ? 'RIVAL DIVING' : 'rival climbing'}</div>
+      <div className="threat-hint">{diving ? 'turn away or climb' : 'get above it'}</div>
+    </div>
+  )
+}
 
 function Vario({ lift }: { lift: number }) {
   const strength = Math.min(1, Math.abs(lift) / 4)

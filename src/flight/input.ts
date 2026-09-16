@@ -5,17 +5,19 @@
  * Left/Right bank (which turns you). Down pulls the nose up, Up pushes it down,
  * like a plane. Space brakes and puts the talons out - one key, because for a
  * raptor they are one movement: the feet come forward to slow down, to land, and
- * to take something.
+ * to take something. X opens them again and lets the catch go.
  */
 import type { Input } from './physics.ts'
 
 const pressed = new Set<string>()
 
-export const input: Input & { restart: boolean } = {
+export const input: Input & { restart: boolean; drop: boolean } = {
   roll: 0,
   pitch: 0,
   brake: false,
   restart: false,
+  /** Let go of whatever is in the talons. */
+  drop: false,
 }
 
 const TRACKED = new Set([
@@ -24,6 +26,7 @@ const TRACKED = new Set([
   'ArrowUp',
   'ArrowDown',
   'Space',
+  'KeyX',
   'KeyA',
   'KeyD',
   'KeyW',
@@ -40,6 +43,7 @@ function refresh() {
   input.pitch = (noseUp ? 1 : 0) - (noseDown ? 1 : 0)
   input.brake = pressed.has('Space')
   input.restart = pressed.has('Enter')
+  input.drop = pressed.has('KeyX')
 }
 
 export function attachInput() {

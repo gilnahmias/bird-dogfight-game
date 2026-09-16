@@ -253,3 +253,60 @@ canvas {
 .controls b {
   opacity: 0.95;
 }
+
+/* --- Rivals ------------------------------------------------------------- */
+
+.threat {
+  position: absolute;
+  top: 26%;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  color: #ffc46b;
+  opacity: 0.9;
+}
+
+.threat.diving {
+  color: #ff7a4a;
+  opacity: 1;
+  animation: threat-pulse 0.45s ease-in-out infinite alternate;
+}
+
+@keyframes threat-pulse {
+  from {
+    transform: translateX(-50%) scale(1);
+  }
+  to {
+    transform: translateX(-50%) scale(1.08);
+  }
+}
+
+.threat-arrow {
+  font-size: 26px;
+  line-height: 1;
+  transition: transform 90ms linear;
+}
+
+.threat-text {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.threat-hint {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  opacity: 0.75;
+}
+
+.rivals-beaten {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #d8e4ee;
+  opacity: 0.7;
+}

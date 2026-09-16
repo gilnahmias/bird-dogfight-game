@@ -25,6 +25,14 @@ export type WingPose = {
   twist: number
   /** 0 spread, 1 fully swept back and folded in for a dive. */
   tuck: number
+  /**
+   * 0 flying, 1 folded away against the body.
+   *
+   * A perched bird is not a flying bird with its wings held still: it puts them
+   * AWAY. Without this the raptor stood in its nest beating the air like a
+   * wind-up toy, which is the opposite of resting.
+   */
+  fold: number
 }
 
 /**
@@ -42,9 +50,15 @@ export function wingPose(
   phase: number,
   flapping: boolean,
   airspeed: number,
-  options: { tuckStart?: number; tuckFull?: number } = {},
+  options: { tuckStart?: number; tuckFull?: number; perched?: boolean } = {},
 ): WingPose {
-  const { tuckStart = 26, tuckFull = 44 } = options
+  const { tuckStart = 26, tuckFull = 44, perched = false } = options
+
+  if (perched) {
+    // Folded, still, and settled. The tiny drift keeps it from looking stuffed.
+    const breathe = Math.sin(phase * 0.6) * 0.02
+    return { shoulder: -0.12 + breathe, elbow: 0.1, wrist: 0.06, twist: 0, tuck: 1, fold: 1 }
+  }
 
   // Even a gliding bird is never rigid: it trims constantly in moving air.
   const amplitude = flapping ? 0.92 : 0.07
@@ -62,7 +76,7 @@ export function wingPose(
   // spill air on the way back up.
   const twist = stroke(phase - WRIST_LAG - 0.08) * (flapping ? 0.34 : 0.06)
 
-  return { shoulder, elbow, wrist, twist, tuck }
+  return { shoulder, elbow, wrist, twist, tuck, fold: 0 }
 }
 
 /** Just enough of a three.js Object3D to be posed, so this stays testable. */
@@ -86,12 +100,14 @@ export type WingJointSet = { shoulder: Joint; elbow: Joint; wrist: Joint }
  */
 export function applyWingPose(wing: WingJointSet, pose: WingPose): void {
   wing.shoulder.rotation.z = pose.shoulder
-  // Sweeping back at speed is most of what makes a dive read as a dive.
-  wing.shoulder.rotation.y = pose.tuck * -0.55
-  wing.shoulder.scale.x = 1 - pose.tuck * 0.3
+  // Sweeping back at speed is most of what makes a dive read as a dive, and
+  // folding is the same movement taken all the way: swept back and shortened
+  // until the wing is lying along the bird instead of standing out from it.
+  wing.shoulder.rotation.y = pose.tuck * -0.55 - pose.fold * 0.5
+  wing.shoulder.scale.x = 1 - pose.tuck * 0.3 - pose.fold * 0.22
 
   wing.elbow.rotation.z = pose.elbow
-  wing.elbow.rotation.y = pose.tuck * -0.5
+  wing.elbow.rotation.y = pose.tuck * -0.5 - pose.fold * 1.15
 
   wing.wrist.rotation.z = pose.wrist
   // Feathering: the hand twists to bite on the way down and spill on the way

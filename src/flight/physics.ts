@@ -59,6 +59,12 @@ export type BirdState = {
   launchTimer: number
   /** Seconds left of hauling off the water after touching it. */
   wetTimer: number
+  /**
+   * How many times a rival has connected. Counted rather than flagged so the
+   * rest of the game can notice a hit without anyone having to clear anything:
+   * whoever cares keeps the number they last saw.
+   */
+  hit: number
   dead: boolean
 }
 
@@ -84,6 +90,7 @@ export function createBird(pos: Vector3, heading = 0, perched = false): BirdStat
     perched,
     launchTimer: 0,
     wetTimer: 0,
+    hit: 0,
     dead: false,
   }
 }

@@ -18,7 +18,8 @@
     "tarns": "node --experimental-strip-types src/dev/tarncheck.ts",
     "fallcheck": "node --experimental-strip-types src/dev/fallcheck.ts",
     "launch": "node --experimental-strip-types src/dev/launch.ts",
-    "carry": "node --experimental-strip-types src/dev/carry.ts"
+    "carry": "node --experimental-strip-types src/dev/carry.ts",
+    "dogfight": "node --experimental-strip-types src/dev/dogfight.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",

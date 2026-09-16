@@ -18,10 +18,12 @@ import {
   type Prey,
   spawnPreyAround,
   stockedFish,
+  surfaceFor,
   talonPoint,
   valueOf,
 } from './prey.ts'
 import { useGame } from '../game/store.ts'
+import { input } from '../flight/input.ts'
 import { T } from '../game/constants.ts'
 
 /** How many animals are alive around the bird at once. */
@@ -57,6 +59,8 @@ export function PreyField({
   const alive = useRef<Prey[]>([])
   const carried = useRef<Prey[]>([])
   const seeded = useRef(false)
+  const wasDropping = useRef(false)
+  const lastHit = useRef(0)
   const lastTopUp = useRef(new Vector3(Infinity, 0, Infinity))
   const groups = useRef<Map<number, Group>>(new Map())
   const [rendered, setRendered] = useState<Prey[]>([])
@@ -131,6 +135,25 @@ export function PreyField({
       }
     }
 
+    // --- Letting go --------------------------------------------------------
+    /*
+      Dropping is edge-triggered, because the key is held for a moment and a
+      held key would otherwise drop one animal per frame. A dropped catch is not
+      destroyed - it falls back to the ground and can be taken again, which makes
+      letting go a decision about weight rather than a punishment.
+    */
+    if (input.drop && !wasDropping.current && carried.current.length > 0) {
+      for (const prey of carried.current) {
+        prey.caught = false
+        prey.pos.set(bird.pos.x, surfaceFor(prey.kind, bird.pos.x, bird.pos.z, seed), bird.pos.z)
+      }
+      alive.current = alive.current.concat(carried.current)
+      carried.current = []
+      bird.load = 0
+      sync()
+    }
+    wasDropping.current = input.drop
+
     // --- Banking -----------------------------------------------------------
     if (carried.current.length > 0 && canBank(bird.pos, nest)) {
       const gained = valueOf(carried.current)
@@ -146,7 +169,22 @@ export function PreyField({
       sync()
     }
 
-    // Losing the catch is the cost of being hit, and of hitting the ground.
+    // Losing the catch is the cost of being hit by a rival...
+    if (bird.hit !== lastHit.current) {
+      lastHit.current = bird.hit
+      if (carried.current.length > 0) {
+        for (const prey of carried.current) {
+          prey.caught = false
+          prey.pos.set(bird.pos.x, surfaceFor(prey.kind, bird.pos.x, bird.pos.z, seed), bird.pos.z)
+        }
+        alive.current = alive.current.concat(carried.current)
+        carried.current = []
+        bird.load = 0
+        sync()
+      }
+    }
+
+    // ...and of hitting the ground.
     if (bird.dead && carried.current.length > 0) {
       carried.current = []
       bird.load = 0

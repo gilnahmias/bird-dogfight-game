@@ -22,6 +22,7 @@ import { findWaterfalls } from './world/waterfalls.ts'
 import { findTarns } from './world/tarns.ts'
 import { Tarns } from './world/Tarns.tsx'
 import { PreyField } from './world/Prey.tsx'
+import { Rivals } from './entities/Rivals.tsx'
 import { Waterfalls } from './world/Waterfalls.tsx'
 import { Splashes } from './world/Splashes.tsx'
 import { T, WORLD } from './game/constants.ts'
@@ -87,6 +88,7 @@ export default function App() {
         <CloudShadows patches={patches} seed={SEED} drift={cloudDrift} />
 
         <Splashes />
+        <Rivals bird={bird} seed={SEED} />
         <PreyField bird={bird} seed={SEED} nest={nest} />
         <Shadow state={bird} seed={SEED} />
         <Bird state={bird} seed={SEED} spawn={spawn} heading={site.heading} nest={nest} />

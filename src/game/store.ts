@@ -19,7 +19,17 @@ export type Telemetry = {
   dead: boolean
 }
 
+export type Threat = 'none' | 'watching' | 'diving'
+
 type GameState = Telemetry & {
+  /** What the rivals are doing, for the warning on screen. */
+  threat: Threat
+  /** Where that rival is, relative to the nose, in radians. */
+  threatBearing: number
+  /** How many rivals have been knocked out of the sky. */
+  rivalsBeaten: number
+  /** How many times the player has been hit. */
+  struck: number
   /** Food value banked at the nest. */
   banked: number
   /** How many animals have been banked. */
@@ -45,11 +55,16 @@ const initialTelemetry: Telemetry = {
 
 export const useGame = create<GameState>((set) => ({
   ...initialTelemetry,
+  threat: 'none',
+  threatBearing: 0,
+  rivalsBeaten: 0,
+  struck: 0,
   banked: 0,
   bankedCount: 0,
   carried: 0,
   runStartedAt: Date.now(),
   setTelemetry: (t) => set(t),
   // Banked food survives a death - it is in the nest, not in the bird.
-  reset: () => set({ ...initialTelemetry, carried: 0, runStartedAt: Date.now() }),
+  reset: () =>
+    set({ ...initialTelemetry, carried: 0, threat: 'none', runStartedAt: Date.now() }),
 }))

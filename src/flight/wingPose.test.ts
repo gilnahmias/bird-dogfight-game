@@ -231,3 +231,39 @@ test('the rhythm does not flicker frame to frame', () => {
   // Roughly one change every few seconds, not several a second.
   assert.ok(switches < 30, `${switches} changes in 40 seconds is a flicker, not a wingbeat`)
 })
+
+test('a perched bird folds its wings away instead of beating them', () => {
+  const { root, left, right } = buildWings()
+  const folded = wingPose(0.3, true, 0, { perched: true })
+  assert.equal(folded.fold, 1)
+  applyWingPose(left, folded)
+  applyWingPose(right, folded)
+  root.updateMatrixWorld(true)
+  const foldedTip = new Vector3()
+  left.tip.getWorldPosition(foldedTip)
+
+  const spread = wingPose(0.3, true, 20)
+  applyWingPose(left, spread)
+  applyWingPose(right, spread)
+  root.updateMatrixWorld(true)
+  const spreadTip = new Vector3()
+  left.tip.getWorldPosition(spreadTip)
+
+  assert.ok(
+    foldedTip.x < spreadTip.x * 0.7,
+    `folded wingtip is at x=${foldedTip.x.toFixed(2)} against ${spreadTip.x.toFixed(2)} spread - it is not tucked in`,
+  )
+  assert.ok(foldedTip.z > spreadTip.z, 'a folded wing lies back along the bird')
+})
+
+test('a perched bird is still, whatever its wing clock is doing', () => {
+  // The wing phase keeps running while perched; the pose must barely notice.
+  let lowest = Infinity
+  let highest = -Infinity
+  for (let i = 0; i < 200; i++) {
+    const pose = wingPose(i * 0.37, true, 0, { perched: true })
+    lowest = Math.min(lowest, pose.shoulder)
+    highest = Math.max(highest, pose.shoulder)
+  }
+  assert.ok(highest - lowest < 0.1, `a resting wing moved through ${(highest - lowest).toFixed(2)} radians`)
+})

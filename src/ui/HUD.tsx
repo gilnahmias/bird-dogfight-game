@@ -28,6 +28,7 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
     banked,
     threat,
     threatBearing,
+    threatAbove,
     rivalsBeaten,
   } = useGame()
 
@@ -74,7 +75,9 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
 
       {perched && !dead && <div className="perched">IN THE NEST &middot; press SPACE to launch</div>}
 
-      {threat !== 'none' && !dead && <ThreatWarning threat={threat} bearing={threatBearing} />}
+      {threat !== 'none' && !dead && (
+        <ThreatWarning threat={threat} bearing={threatBearing} above={threatAbove} />
+      )}
 
       {carried > 0 && !dead && <Pointer target={nest} label="nest" bird={bird} tone="home" />}
       {carried === 0 && !dead && <LakePointer bird={bird} seed={seed} />}
@@ -97,7 +100,7 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
         <span><b>space</b> brake &amp; talons</span>
         <span><b>x</b> drop</span>
         <span>catch prey low, bank it at the nest</span>
-        <span>beat a rival by diving on it from above</span>
+        <span>beat a rival by diving on it from above, talons out</span>
       </div>
     </div>
   )
@@ -199,14 +202,27 @@ const LAKE_SEARCH = 3000
  * and climbs too, or turns and gets speed, wins the exchange. A dive that
  * arrived out of nowhere would just be a tax.
  */
-function ThreatWarning({ threat, bearing }: { threat: 'watching' | 'diving'; bearing: number }) {
+function ThreatWarning({
+  threat,
+  bearing,
+  above,
+}: {
+  threat: 'watching' | 'diving'
+  bearing: number
+  above: number
+}) {
   const diving = threat === 'diving'
+  // Which way to LOOK. A compass bearing says where it is on the ground; half
+  // the answer to "where is it" is whether you have to look up or down.
+  const height = Math.round(above)
+  const vertical = height > 8 ? `${height}m above` : height < -8 ? `${-height}m below` : 'level'
   return (
     <div className={`threat${diving ? ' diving' : ''}`}>
       <div className="threat-arrow" style={{ transform: `rotate(${bearing}rad)` }}>
         &uarr;
       </div>
       <div className="threat-text">{diving ? 'RIVAL DIVING' : 'rival climbing'}</div>
+      <div className="threat-height">{vertical}</div>
       <div className="threat-hint">{diving ? 'turn away or climb' : 'get above it'}</div>
     </div>
   )

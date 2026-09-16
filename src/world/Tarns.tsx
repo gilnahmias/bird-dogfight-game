@@ -6,10 +6,10 @@
  * mirror-like at a glance, with only the faintest ripple, which is what
  * separates a tarn from the open water below.
  */
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { DoubleSide, type ShaderMaterial, Vector3 } from 'three'
-import type { Tarn } from './tarns.ts'
+import { findTarns, type Tarn } from './tarns.ts'
 import { SUN_DIRECTION } from './sky.ts'
 
 const vertexShader = /* glsl */ `
@@ -96,11 +96,32 @@ function Pool({ tarn }: { tarn: Tarn }) {
   )
 }
 
-export function Tarns({ tarns }: { tarns: Tarn[] }) {
+/** How far out lakes are given their water, and how far the bird moves before we look again. */
+const POOL_RANGE = 2200
+const RESTOCK_AFTER = 500
+
+/**
+ * The lakes near the bird.
+ *
+ * Streamed, like the terrain, and for the same reason. These were worked out
+ * once around the nest at startup: fly a couple of kilometres and the basins are
+ * still carved into the ground - the world always had them - but nothing draws
+ * water in them, so you arrive at a lake bed and find it dry.
+ */
+export function Tarns({ target, seed }: { target: { current: Vector3 }; seed: string }) {
+  const [tarns, setTarns] = useState<Tarn[]>(() => findTarns(seed, target.current, 24, POOL_RANGE))
+  const built = useRef(target.current.clone())
+
+  useFrame(() => {
+    if (target.current.distanceTo(built.current) < RESTOCK_AFTER) return
+    built.current.copy(target.current)
+    setTarns(findTarns(seed, target.current, 24, POOL_RANGE))
+  })
+
   return (
     <group>
-      {tarns.map((tarn, i) => (
-        <Pool key={i} tarn={tarn} />
+      {tarns.map((tarn) => (
+        <Pool key={`${tarn.centre.x.toFixed(0)}:${tarn.centre.z.toFixed(0)}`} tarn={tarn} />
       ))}
     </group>
   )

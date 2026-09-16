@@ -143,3 +143,27 @@ test('a killed rival falls out of the sky', () => {
   assert.ok(dead.pos.y < 185, `a dead bird only fell ${(200 - dead.pos.y).toFixed(1)}m in two seconds`)
   assert.ok(dead.dying > 1.9, 'the fall is not being timed')
 })
+
+test('talons out reach further, which is what makes them the weapon', () => {
+  // Just outside the normal reach, with the player above and coming down.
+  const rival = at(0, 0, 0, 0, 0, -22)
+  const player = at(0, 18, 4, 0, -20, -26)
+  assert.equal(resolveStrike(rival, player), 'none', 'this should be out of reach')
+  assert.equal(
+    resolveStrike(rival, player, RIVAL.reach + RIVAL.talonBonus),
+    'target',
+    'with the talons out the same pass should land',
+  )
+})
+
+test('the extra reach cannot be used to hit the player', () => {
+  // Same geometry the other way up: a rival diving on the player from outside
+  // normal reach must still miss, whatever the player is doing with its feet.
+  const rival = at(0, 18, 4, 0, -20, -26)
+  const player = at(0, 0, 0, 0, 0, -22)
+  assert.equal(resolveStrike(rival, player), 'none')
+  // The caller only ever accepts 'target' from the extended check; this test
+  // pins the thing that makes that safe - the extended call still names the
+  // rival as the winner, so accepting only 'target' throws it away.
+  assert.equal(resolveStrike(rival, player, RIVAL.reach + RIVAL.talonBonus), 'attacker')
+})

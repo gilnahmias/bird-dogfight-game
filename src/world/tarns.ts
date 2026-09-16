@@ -34,9 +34,14 @@ export type Tarn = {
 
 const SEARCH_RADIUS = 3400
 
-export function findTarns(seed: string, centre: Vector3, max = 24): Tarn[] {
+export function findTarns(
+  seed: string,
+  centre: Vector3,
+  max = 24,
+  radius = SEARCH_RADIUS,
+): Tarn[] {
   const tarns: Tarn[] = []
-  for (const site of tarnSitesNear(centre.x, centre.z, SEARCH_RADIUS, seed)) {
+  for (const site of tarnSitesNear(centre.x, centre.z, radius, seed)) {
     if (tarns.length >= max) break
     const toRim = new Vector3(Math.cos(site.outletAngle), 0, Math.sin(site.outletAngle))
     const outlet = new Vector3(

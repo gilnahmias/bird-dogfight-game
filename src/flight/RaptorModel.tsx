@@ -8,6 +8,7 @@
  */
 import { useMemo, type RefObject } from 'react'
 import { DoubleSide, ExtrudeGeometry, Group, Shape, ShapeGeometry } from 'three'
+import { PLUMAGE, type Plumage } from './plumage.ts'
 import {
   alula,
   armShape,
@@ -21,22 +22,19 @@ import {
   tailFeathers,
 } from './wingShapes.ts'
 
-const FEATHER = '#6b4f35'
-const FEATHER_MID = '#5b422c'
-const FEATHER_DARK = '#3f2c1e'
-const FEATHER_LIGHT = '#8a6a48'
-const BELLY = '#d8cbb4'
-
 /** Forward is -Z. */
 export function BirdModel({
   left,
   right,
   feet,
+  palette = PLUMAGE,
 }: {
   left: WingJoints
   right: WingJoints
   feet: { left: RefObject<Group | null>; right: RefObject<Group | null> }
+  palette?: Plumage
 }) {
+  const { feather: FEATHER, featherDark: FEATHER_DARK, belly: BELLY } = palette
   return (
     <group>
       {/* body */}
@@ -59,13 +57,13 @@ export function BirdModel({
         <coneGeometry args={[0.12, 0.38, 6]} />
         <meshStandardMaterial color="#e0b341" roughness={0.6} />
       </mesh>
-      <Tail />
+      <Tail palette={palette} />
       {/* The feet. These are the weapon, so they get built properly. */}
-      <Foot side={-1} grip={feet.left} />
-      <Foot side={1} grip={feet.right} />
+      <Foot side={-1} grip={feet.left} palette={palette} />
+      <Foot side={1} grip={feet.right} palette={palette} />
 
       <group position={[0.35, 0.12, 0]}>
-        <Wing joints={left} />
+        <Wing joints={left} palette={palette} />
       </group>
       {/*
         The mirror sits on a group the animation never writes to. The flap
@@ -74,7 +72,7 @@ export function BirdModel({
         fold both wings onto the same side of the bird.
       */}
       <group position={[-0.35, 0.12, 0]} scale={[-1, 1, 1]}>
-        <Wing joints={right} />
+        <Wing joints={right} palette={palette} />
       </group>
     </group>
   )
@@ -129,7 +127,16 @@ function Toe({
   )
 }
 
-function Foot({ side, grip }: { side: number; grip: RefObject<Group | null> }) {
+function Foot({
+  side,
+  grip,
+  palette,
+}: {
+  side: number
+  grip: RefObject<Group | null>
+  palette: Plumage
+}) {
+  const FEATHER_LIGHT = palette.featherLight
   return (
     <group position={[side * 0.19, -0.3, 0.16]}>
       {/* feathered thigh, so the leg does not sprout from nothing */}
@@ -200,7 +207,13 @@ function Feathers({
    for; the rule is aimed at reading `.current` during render, which this does
    not do. The joints have to be refs because the frame loop poses them 60 times
    a second and must never trigger a render. */
-function Wing({ joints }: { joints: WingJoints }) {
+function Wing({ joints, palette }: { joints: WingJoints; palette: Plumage }) {
+  const {
+    feather: FEATHER,
+    featherMid: FEATHER_MID,
+    featherDark: FEATHER_DARK,
+    featherLight: FEATHER_LIGHT,
+  } = palette
   const arm = useMemo(() => new ExtrudeGeometry(armShape(), SPAR), [])
   const hand = useMemo(() => new ExtrudeGeometry(handShape(), SPAR), [])
 
@@ -245,7 +258,8 @@ function Wing({ joints }: { joints: WingJoints }) {
 }
 /* oxlint-enable react/refs */
 
-function Tail() {
+function Tail({ palette }: { palette: Plumage }) {
+  const { feather: FEATHER, featherDark: FEATHER_DARK } = palette
   const shapes = useMemo(() => tailFeathers(), [])
   return (
     <group position={[0, 0.02, 0.95]}>

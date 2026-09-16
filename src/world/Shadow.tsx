@@ -28,13 +28,13 @@ import { useFrame } from '@react-three/fiber'
 import {
   CanvasTexture,
   DoubleSide,
+  Quaternion,
   LinearFilter,
   Matrix4,
   type Mesh,
   type ShaderMaterial,
   Vector3,
 } from 'three'
-import type { BirdState } from '../flight/physics.ts'
 import { meshHeightAt, normalAt } from './terrain.ts'
 import { castOnto, castToGround, litness, shadowFor } from './shadow.ts'
 import { SUN_DIRECTION } from './sky.ts'
@@ -153,7 +153,22 @@ const FRAGMENT = /* glsl */ `
   }
 `
 
-export function Shadow({ state, seed }: { state: BirdState; seed: string }) {
+/**
+ * Anything that can throw a shadow: the player, and every rival.
+ *
+ * Structural rather than tied to BirdState, because a rival is steered rather
+ * than flown and has no flight state - but it is the same bird in the same sky
+ * and it must leave the same mark on the ground.
+ */
+export type ShadowCaster = {
+  pos: Vector3
+  quat: Quaternion
+  /** Where the wings are in the beat, radians. */
+  wingAngle: number
+  dead: boolean
+}
+
+export function Shadow({ state, seed }: { state: ShadowCaster; seed: string }) {
   const mesh = useRef<Mesh>(null)
   const material = useRef<ShaderMaterial>(null)
   const settled = useRef({ groundY: NaN, nx: 0, ny: 1, nz: 0 })

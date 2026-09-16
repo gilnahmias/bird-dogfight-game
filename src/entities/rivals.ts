@@ -122,6 +122,14 @@ export const RIVAL = {
    */
   strikeSpeed: 5,
   /**
+   * Extra reach when the player has the talons out and is the one striking.
+   *
+   * The talons are the weapon, and holding them out is the one thing the player
+   * does deliberately in a fight. Without this they were decoration in combat:
+   * the geometry decided everything and the key that means "strike" did nothing.
+   */
+  talonBonus: 9,
+  /**
    * Inside this, a diving rival stops correcting and holds its line.
    *
    * At forty metres and forty metres a second, the player has about a second to
@@ -219,8 +227,8 @@ function flatDot(a: Vector3, b: Vector3): number {
  * the whole combat model, and it is the same rule the player was taught by
  * hunting: commit from height, or do not commit.
  */
-export function resolveStrike(a: Combatant, b: Combatant): Strike {
-  if (a.pos.distanceTo(b.pos) > RIVAL.reach) return 'none'
+export function resolveStrike(a: Combatant, b: Combatant, reach: number = RIVAL.reach): Strike {
+  if (a.pos.distanceTo(b.pos) > reach) return 'none'
 
   const aWins = hasAdvantage(a, b)
   const bWins = hasAdvantage(b, a)

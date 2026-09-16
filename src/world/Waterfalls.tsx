@@ -9,10 +9,10 @@
  * Each fall is one double-sided quad plus a mist disc, so a fall costs two draw
  * calls and no texture memory.
  */
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { BufferAttribute, BufferGeometry, DoubleSide, type ShaderMaterial, Vector3 } from 'three'
-import type { Waterfall } from './waterfalls.ts'
+import { findWaterfalls, type Waterfall } from './waterfalls.ts'
 import { TIME_OPERATOR } from './waterfallFlow.ts'
 
 /**
@@ -197,11 +197,32 @@ function Fall({ fall }: { fall: Waterfall }) {
   )
 }
 
-export function Waterfalls({ falls }: { falls: Waterfall[] }) {
+/** How far out falls are drawn, and how far the bird moves before we look again. */
+const FALL_RANGE = 2200
+const RESTOCK_AFTER = 500
+
+/**
+ * The waterfalls near the bird.
+ *
+ * Streamed for the same reason the lakes are: worked out once at the nest, every
+ * tarn beyond that first search spilled over its lip into nothing.
+ */
+export function Waterfalls({ target, seed }: { target: { current: Vector3 }; seed: string }) {
+  const [falls, setFalls] = useState<Waterfall[]>(() =>
+    findWaterfalls(seed, target.current, null, 8, FALL_RANGE),
+  )
+  const built = useRef(target.current.clone())
+
+  useFrame(() => {
+    if (target.current.distanceTo(built.current) < RESTOCK_AFTER) return
+    built.current.copy(target.current)
+    setFalls(findWaterfalls(seed, target.current, null, 8, FALL_RANGE))
+  })
+
   return (
     <group>
-      {falls.map((fall, i) => (
-        <Fall key={i} fall={fall} />
+      {falls.map((fall) => (
+        <Fall key={`${fall.top.x.toFixed(0)}:${fall.top.z.toFixed(0)}`} fall={fall} />
       ))}
     </group>
   )

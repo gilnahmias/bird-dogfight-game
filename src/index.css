@@ -155,9 +155,14 @@ canvas {
   opacity: 1;
 }
 
-/* The lake compass sits lower and cooler, so the two are never confused. */
+/*
+  The lake compass sits out to the left and cooler in colour, so it is never
+  confused with the way home - and never lands on top of the rival warning,
+  which owns the middle of the screen.
+*/
 .nest-pointer.water {
-  top: 20%;
+  top: 15%;
+  left: 24%;
   color: #9fd6e8;
   opacity: 0.7;
 }
@@ -292,6 +297,13 @@ canvas {
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
+}
+
+.threat-height {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  opacity: 0.9;
 }
 
 .threat-hint {

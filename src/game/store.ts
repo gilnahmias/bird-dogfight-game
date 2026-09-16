@@ -26,6 +26,8 @@ type GameState = Telemetry & {
   threat: Threat
   /** Where that rival is, relative to the nose, in radians. */
   threatBearing: number
+  /** How far above the bird it is, in metres. Negative means below. */
+  threatAbove: number
   /** How many rivals have been knocked out of the sky. */
   rivalsBeaten: number
   /** How many times the player has been hit. */
@@ -57,6 +59,7 @@ export const useGame = create<GameState>((set) => ({
   ...initialTelemetry,
   threat: 'none',
   threatBearing: 0,
+  threatAbove: 0,
   rivalsBeaten: 0,
   struck: 0,
   banked: 0,

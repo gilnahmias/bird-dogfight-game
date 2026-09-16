@@ -7,7 +7,7 @@
  * it does not kill you. The thing being taught is "commit from above", and you
  * cannot learn it from a game that ends the run the first time you get it wrong.
  */
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Group, Quaternion, Vector3 } from 'three'
 import type { BirdState } from '../flight/physics.ts'
@@ -16,6 +16,8 @@ import { BirdModel, type WingJoints } from '../flight/RaptorModel.tsx'
 import { applyWingPose, wingPose } from '../flight/wingPose.ts'
 import { heightAt } from '../world/terrain.ts'
 import { useGame } from '../game/store.ts'
+import { Shadow, type ShadowCaster } from '../world/Shadow.tsx'
+import { kindOf, type RivalKind } from './rivalKinds.ts'
 import { RIVAL, resolveStrike, stepRival, type Rival } from './rivals.ts'
 
 /** How many rivals are in the air at once. */
@@ -69,6 +71,14 @@ function spawnRival(near: Vector3, heading: Vector3, seed: string): Rival {
 export function Rivals({ bird, seed }: { bird: BirdState; seed: string }) {
   const rivals = useRef<Rival[]>([])
   const groups = useRef<Map<number, Group>>(new Map())
+  /*
+    What each rival's shadow needs.
+
+    Kept alongside the rival rather than derived in the Shadow component, because
+    a rival is steered by a velocity and has no orientation of its own until this
+    loop gives it one - and the shadow has to agree with the bird you can see.
+  */
+  const shadows = useRef<Map<number, ShadowCaster>>(new Map())
   const joints = useRef<Map<number, { left: WingJoints; right: WingJoints }>>(new Map())
   const cooldown = useRef(RESPAWN_DELAY * 0.4)
   const mercy = useRef(0)
@@ -90,7 +100,17 @@ export function Rivals({ bird, seed }: { bird: BirdState; seed: string }) {
     cooldown.current -= dt
     // None turn up while the bird is standing in its nest: the game should not
     // open with something already hunting you.
+    /*
+      Nothing hunts you until you have banked something.
+
+      The first trip out is the tutorial - find prey, catch it, carry it home -
+      and a rival stooping on a player who has not worked out the talons yet
+      teaches nothing. Once there is food in the nest there is something worth
+      taking, and the valley notices.
+    */
+    const contested = useGame.getState().bankedCount > 0
     if (
+      contested &&
       rivals.current.length < MAX_RIVALS &&
       cooldown.current <= 0 &&
       !bird.perched &&
@@ -108,6 +128,7 @@ export function Rivals({ bird, seed }: { bird: BirdState; seed: string }) {
 
     let threat: 'none' | 'watching' | 'diving' = 'none'
     let bearing = 0
+    let above = 0
 
     for (const rival of rivals.current) {
       stepRival(rival, quarry, dt, time)
@@ -121,7 +142,20 @@ export function Rivals({ bird, seed }: { bird: BirdState; seed: string }) {
       }
 
       rivalFwd.copy(rival.vel).normalize()
-      const strike = resolveStrike({ pos: rival.pos, vel: rival.vel, forward: rivalFwd }, player)
+      const attacker = { pos: rival.pos, vel: rival.vel, forward: rivalFwd }
+      let strike = resolveStrike(attacker, player)
+      /*
+        Talons out, and the player is the one with the advantage: reach further.
+
+        Checked as a second pass rather than by simply widening the reach,
+        because a wider reach would help whichever bird was winning - including
+        the rival. This is the player's weapon, so it only ever lands the
+        player's blow.
+      */
+      if (strike === 'none' && bird.talons > 0.4) {
+        const extended = resolveStrike(attacker, player, RIVAL.reach + RIVAL.talonBonus)
+        if (extended === 'target') strike = extended
+      }
 
       if (strike === 'attacker' && mercy.current <= 0 && !bird.dead) {
         // Hit. The catch goes, the bird is thrown off, and there is a moment of
@@ -152,12 +186,25 @@ export function Rivals({ bird, seed }: { bird: BirdState; seed: string }) {
           while (delta2 > Math.PI) delta2 -= Math.PI * 2
           while (delta2 < -Math.PI) delta2 += Math.PI * 2
           bearing = delta2
+          above = rival.pos.y - bird.pos.y
         }
       }
     }
 
     if (useGame.getState().threat !== threat) useGame.setState({ threat })
-    if (threat !== 'none') useGame.setState({ threatBearing: bearing })
+    if (threat !== 'none') useGame.setState({ threatBearing: bearing, threatAbove: above })
+
+    /*
+      Hand the live list to the dev bridge.
+
+      One assignment of an existing reference, dev builds only. Rivals are the
+      hardest part of the game to inspect from outside - they are born, hunt and
+      die inside this loop - and tuning the fight meant guessing at them.
+    */
+    if (import.meta.env.DEV) {
+      const bridge = (window as unknown as { game?: { rivals?: Rival[] } }).game
+      if (bridge) bridge.rivals = rivals.current
+    }
 
     // --- Draw them ---------------------------------------------------------
     for (const rival of rivals.current) {
@@ -175,6 +222,13 @@ export function Rivals({ bird, seed }: { bird: BirdState; seed: string }) {
         }
       }
 
+      const shadow = shadows.current.get(rival.id)
+      if (shadow) {
+        shadow.pos.copy(rival.pos)
+        shadow.quat.copy(group.quaternion)
+        shadow.dead = rival.dead
+      }
+
       const wings = joints.current.get(rival.id)
       if (!wings) continue
       // Beating hard while climbing, tucked in the dive: the wings say what the
@@ -182,6 +236,8 @@ export function Rivals({ bird, seed }: { bird: BirdState; seed: string }) {
       const beating = rival.mode === 'climb' || rival.mode === 'overshoot'
       const phase = time / (beating ? 0.55 : 1.6) + rival.id
       const pose = wingPose(phase, beating && !rival.dead, rival.vel.length())
+      const shadowState = shadows.current.get(rival.id)
+      if (shadowState) shadowState.wingAngle = pose.shoulder + pose.elbow * 0.5
       for (const wing of [wings.left, wings.right]) {
         if (!wing.shoulder.current || !wing.elbow.current || !wing.wrist.current) continue
         applyWingPose(
@@ -197,11 +253,17 @@ export function Rivals({ bird, seed }: { bird: BirdState; seed: string }) {
       {rendered.map((rival) => (
         <RivalBird
           key={rival.id}
+          kind={kindOf(rival.id)}
           onGroup={(node) => {
             if (node) groups.current.set(rival.id, node)
             else groups.current.delete(rival.id)
           }}
           onJoints={(set) => joints.current.set(rival.id, set)}
+          onShadow={(caster) => {
+            if (caster) shadows.current.set(rival.id, caster)
+            else shadows.current.delete(rival.id)
+          }}
+          seed={seed}
         />
       ))}
     </group>
@@ -214,25 +276,41 @@ export function Rivals({ bird, seed }: { bird: BirdState; seed: string }) {
    `.current` during render, which this does not do. The joints have to be refs
    because the frame loop poses them sixty times a second. */
 function RivalBird({
+  kind,
   onGroup,
   onJoints,
+  onShadow,
+  seed,
 }: {
+  kind: RivalKind
   onGroup: (node: Group | null) => void
   onJoints: (set: { left: WingJoints; right: WingJoints }) => void
+  onShadow: (caster: ShadowCaster | null) => void
+  seed: string
 }) {
   const left: WingJoints = { shoulder: useRef(null), elbow: useRef(null), wrist: useRef(null) }
   const right: WingJoints = { shoulder: useRef(null), elbow: useRef(null), wrist: useRef(null) }
   const feet = { left: useRef<Group>(null), right: useRef<Group>(null) }
+  const caster = useMemo<ShadowCaster>(
+    () => ({ pos: new Vector3(), quat: new Quaternion(), wingAngle: 0, dead: false }),
+    [],
+  )
 
   return (
-    <group
-      ref={(node) => {
-        onGroup(node)
-        if (node) onJoints({ left, right })
-      }}
-    >
-      <BirdModel left={left} right={right} feet={feet} />
-    </group>
+    <>
+      <group
+        ref={(node) => {
+          onGroup(node)
+          onShadow(node ? caster : null)
+          if (node) onJoints({ left, right })
+        }}
+        scale={kind.scale}
+      >
+        <BirdModel left={left} right={right} feet={feet} palette={kind.palette} />
+      </group>
+      {/* Its shadow, so you can tell where it is even when it is off screen. */}
+      <Shadow state={caster} seed={seed} />
+    </>
   )
 }
 /* oxlint-enable react/refs */

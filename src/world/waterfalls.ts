@@ -239,8 +239,9 @@ export function findWaterfalls(
   centre: Vector3,
   heading: Vector3 | null = null,
   max = 8,
+  radius?: number,
 ): Waterfall[] {
-  const candidates = findTarns(seed, centre, 22)
+  const candidates = findTarns(seed, centre, 22, radius)
     .map((tarn) => fallFromTarn(tarn, seed))
     .filter((w): w is Waterfall => w !== null)
 

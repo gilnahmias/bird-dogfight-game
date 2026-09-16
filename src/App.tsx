@@ -10,7 +10,7 @@ import { Water } from './world/Water.tsx'
 import { Scatter } from './world/Scatter.tsx'
 import { HUD } from './ui/HUD.tsx'
 import { DevBridge } from './dev/DevBridge.tsx'
-import { departureDirection, findNestSite, launchPoint, nestPoint } from './world/nest.ts'
+import { findNestSite, launchPoint, nestPoint } from './world/nest.ts'
 import { Nest } from './world/Nest.tsx'
 import { Motes } from './world/Motes.tsx'
 import { Clouds, Sun, type CloudPatch } from './world/Clouds.tsx'
@@ -18,8 +18,6 @@ import { SkyDome } from './world/SkyDome.tsx'
 import { CloudShadows } from './world/CloudShadows.tsx'
 import { SKY, SUN_DIRECTION, sunPosition } from './world/sky.ts'
 import { Shadow } from './world/Shadow.tsx'
-import { findWaterfalls } from './world/waterfalls.ts'
-import { findTarns } from './world/tarns.ts'
 import { Tarns } from './world/Tarns.tsx'
 import { PreyField } from './world/Prey.tsx'
 import { Rivals } from './entities/Rivals.tsx'
@@ -35,11 +33,6 @@ export default function App() {
   // Every run starts at the nest, launching down its open departure line.
   const site = useMemo(() => findNestSite(SEED), [])
   const spawn = useMemo(() => launchPoint(site), [site])
-  const falls = useMemo(
-    () => findWaterfalls(SEED, site.pos, departureDirection(site.heading)),
-    [site],
-  )
-  const tarns = useMemo(() => findTarns(SEED, site.pos), [site])
   // Cloud positions are published upward so their shade can be cast on the ground.
   const [patches, setPatches] = useState<CloudPatch[]>([])
   const cloudDrift = useRef(new Vector3())
@@ -81,8 +74,8 @@ export default function App() {
         <Water target={target} sun={SUN_DIRECTION} />
         <Scatter target={target} seed={SEED} />
         <Nest site={site} />
-        <Tarns tarns={tarns} />
-        <Waterfalls falls={falls} />
+        <Tarns target={target} seed={SEED} />
+        <Waterfalls target={target} seed={SEED} />
         <Motes target={target} seed={SEED} />
         <Clouds target={target} seed={SEED} onPatches={onPatches} driftOut={cloudDrift} />
         <CloudShadows patches={patches} seed={SEED} drift={cloudDrift} />

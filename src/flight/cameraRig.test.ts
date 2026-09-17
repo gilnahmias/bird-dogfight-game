@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { CLEARANCE, keepAboveGround, keepCameraClear } from './cameraRig.ts'
+import { CLEARANCE, keepAboveGround, keepCameraClear, portraitFov } from './cameraRig.ts'
 
 const out = { x: 0, y: 0, z: 0 }
 
@@ -113,4 +113,12 @@ test('beside a slope the camera swings toward lower ground and stays low', () =>
   const lookDown = (Math.atan2(out.y - bird.y, Math.hypot(out.x - bird.x, out.z - bird.z)) * 180) / Math.PI
   assert.ok(out.x < camera.x, `it should have swung away from the slope, x went ${camera.x} -> ${out.x.toFixed(1)}`)
   assert.ok(lookDown < 45, `looking down on the bird at ${lookDown.toFixed(0)} degrees`)
+})
+
+test('a tall screen widens the lens to keep the sideways view, a wide one is left alone', () => {
+  assert.equal(portraitFov(60, 16 / 9), 60)
+  const hfov = (v: number, aspect: number) => 2 * Math.atan(Math.tan((v * Math.PI) / 360) * aspect)
+  const tablet = 0.7
+  assert.ok(Math.abs(hfov(portraitFov(60, tablet), tablet) - hfov(60, 0.9)) < 1e-6)
+  assert.ok(portraitFov(62, 390 / 844) <= 100, 'an upright phone must not turn into a fisheye')
 })

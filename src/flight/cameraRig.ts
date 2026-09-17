@@ -181,3 +181,20 @@ export function keepAboveGround(
   if (point.y < floor) point.y = floor
   return point
 }
+
+/**
+ * The lens for a tall screen.
+ *
+ * The field of view is vertical, so a phone held upright keeps the height and
+ * loses most of the width: the world shrinks to a slot you cannot steer by.
+ * Below this aspect the vertical angle opens up to keep the sideways view - not
+ * all of a landscape screen's, which would need a fisheye, but enough to steer by.
+ */
+const NARROWEST_ASPECT = 0.9
+
+export function portraitFov(fov: number, aspect: number): number {
+  if (aspect >= NARROWEST_ASPECT) return fov
+  const half = Math.atan((Math.tan((fov * Math.PI) / 360) * NARROWEST_ASPECT) / aspect)
+  // Capped, because past this a phone held upright looks through a fisheye.
+  return Math.min(100, (half * 360) / Math.PI)
+}

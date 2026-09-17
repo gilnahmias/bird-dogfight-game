@@ -94,10 +94,13 @@ export function attachAudio(): () => void {
   }
   window.addEventListener('keydown', key)
   window.addEventListener('pointerdown', unlock)
+  // iOS only lets audio start from the END of a touch.
+  window.addEventListener('touchend', unlock)
   document.addEventListener('visibilitychange', syncRunning)
   return () => {
     window.removeEventListener('keydown', key)
     window.removeEventListener('pointerdown', unlock)
+    window.removeEventListener('touchend', unlock)
     document.removeEventListener('visibilitychange', syncRunning)
   }
 }

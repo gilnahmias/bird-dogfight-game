@@ -9,6 +9,7 @@ import { TerrainChunks } from './world/TerrainChunks.tsx'
 import { Water } from './world/Water.tsx'
 import { Scatter } from './world/Scatter.tsx'
 import { HUD } from './ui/HUD.tsx'
+import { TouchControls } from './ui/TouchControls.tsx'
 import { DevBridge } from './dev/DevBridge.tsx'
 import { findNestSite, launchPoint, nestPoint } from './world/nest.ts'
 import { Nest } from './world/Nest.tsx'
@@ -31,18 +32,11 @@ import { useGame } from './game/store.ts'
 import { PauseClock } from './game/PauseClock.tsx'
 
 const SEED = 'pine-ridge'
+const COARSE = matchMedia('(pointer: coarse)').matches
 
 export default function App() {
   useEffect(attachInput, [])
   const paused = useGame((s) => s.paused)
-  useEffect(() => {
-    // Left click only, so a right click for the browser menu does not pause.
-    const click = (e: PointerEvent) => {
-      if (e.button === 0) useGame.getState().togglePause()
-    }
-    window.addEventListener('pointerdown', click)
-    return () => window.removeEventListener('pointerdown', click)
-  }, [])
 
   // Every run starts at the nest, launching down its open departure line.
   const site = useMemo(() => findNestSite(SEED), [])
@@ -62,7 +56,8 @@ export default function App() {
       <Canvas
         camera={{ fov: T.camFovBase, near: 0.5, far: WORLD.fogFar + 400 }}
         shadows={false}
-        dpr={[1, 1.75]}
+        // Phones have dense screens and small GPUs: cap the resolution lower there.
+        dpr={[1, COARSE ? 1.5 : 1.75]}
         // Paused means no frames at all: nothing moves and the GPU rests.
         frameloop={paused ? 'never' : 'always'}
         /*
@@ -109,6 +104,7 @@ export default function App() {
         <DevBridge bird={bird} />
       </Canvas>
       <HUD nest={nest} bird={bird} seed={SEED} />
+      <TouchControls />
     </>
   )
 }

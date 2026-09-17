@@ -14,6 +14,7 @@ import { useGame } from '../game/store.ts'
 import { T } from '../game/constants.ts'
 import { tarnSitesNear } from '../world/terrain.ts'
 import { isMuted, onMuteChange } from '../audio/engine.ts'
+import { useTouchMode } from './touchMode.ts'
 import { rivalNestsNear } from '../entities/rivalNests.ts'
 
 export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed: string }) {
@@ -37,6 +38,7 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
     paused,
   } = useGame()
   const muted = useSyncExternalStore(onMuteChange, isMuted)
+  const touch = useTouchMode()
 
   return (
     <div className="hud">
@@ -79,7 +81,11 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
         <div className="score-label">banked</div>
       </div>
 
-      {perched && !dead && <div className="perched">IN THE NEST &middot; press SPACE to launch</div>}
+      {perched && !dead && !paused && (
+        <div className="perched">
+          IN THE NEST &middot; {touch ? 'tap TALONS to launch' : 'press SPACE to launch'}
+        </div>
+      )}
 
       {threat !== 'none' && !dead && (
         <ThreatWarning
@@ -109,14 +115,20 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
       {dead && (
         <div className="dead">
           <div className="dead-title">CRASHED</div>
-          <div className="dead-hint">press Enter to fly again</div>
+          <div className="dead-hint">{touch ? 'tap' : 'click or press Enter'} to fly again</div>
         </div>
       )}
 
       {paused && (
         <div className="paused">
           <div className="paused-title">PAUSED</div>
-          <div className="paused-hint">click to keep flying</div>
+          <div className="paused-hint">{touch ? 'tap' : 'click'} to keep flying</div>
+        </div>
+      )}
+
+      {touch && perched && !dead && !paused && (
+        <div className="touch-hint">
+          stick up to dive, back to climb &middot; hold TALONS to catch
         </div>
       )}
 
@@ -126,7 +138,7 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
         <span><b>&uarr;</b> nose down</span>
         <span><b>space</b> brake &amp; talons</span>
         <span><b>x</b> drop</span>
-        <span><b>click</b> pause</span>
+        <span><b>click</b> or <b>p</b> pause</span>
         <span><b>m</b> {muted ? 'unmute' : 'mute'}</span>
         <span>catch prey low, bank it at the nest</span>
         <span>beat a rival by diving on it from above, talons out</span>

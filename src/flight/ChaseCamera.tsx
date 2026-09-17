@@ -16,7 +16,7 @@ import type { BirdState } from './physics.ts'
 import { FWD, UP } from './physics.ts'
 import { T, WORLD } from '../game/constants.ts'
 import { meshHeightAt } from '../world/terrain.ts'
-import { keepAboveGround, keepCameraClear } from './cameraRig.ts'
+import { keepAboveGround, keepCameraClear, portraitFov } from './cameraRig.ts'
 
 const fwd = new Vector3()
 const up = new Vector3()
@@ -90,7 +90,7 @@ export function ChaseCamera({ state, seed }: { state: BirdState; seed: string })
     // Speed reads better as a widening lens than as a number on the HUD.
     if (camera instanceof PerspectiveCamera) {
       const kick = Math.min(1, state.airspeed / T.camFovSpeedRef)
-      const wanted = T.camFovBase + kick * T.camFovSpeedKick
+      const wanted = portraitFov(T.camFovBase + kick * T.camFovSpeedKick, camera.aspect)
       camera.fov += (wanted - camera.fov) * Math.min(1, delta * 3)
       camera.updateProjectionMatrix()
     }
@@ -103,3 +103,4 @@ export function ChaseCamera({ state, seed }: { state: BirdState; seed: string })
 
   return null
 }
+

@@ -6,7 +6,7 @@
  * is what these are: a body and a pair of wings bent into a shallow V. Flapping
  * is the V flipping, which is all a flap is from two hundred metres.
  */
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import {
   BufferAttribute,
@@ -18,6 +18,7 @@ import {
   Quaternion,
   Vector3,
 } from 'three'
+import { audible } from '../audio/ears.ts'
 import type { BirdState } from '../flight/physics.ts'
 import { RIGHT } from '../flight/physics.ts'
 import { useGame } from '../game/store.ts'
@@ -111,6 +112,9 @@ export function Flocks({ bird, seed }: { bird: BirdState; seed: string }) {
   const mobs = useRef<Mob[]>([])
   const [mobCrows, setMobCrows] = useState<Mobber[]>([])
   const crowViews = useRef<Map<Mobber, CrowView>>(new Map())
+  useEffect(() => {
+    audible.crows = mobCrows
+  }, [mobCrows])
   const restUntil = useRef<Map<number, number>>(new Map())
 
   useFrame((frame, delta) => {

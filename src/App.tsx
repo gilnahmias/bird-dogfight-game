@@ -24,6 +24,7 @@ import { Rivals } from './entities/Rivals.tsx'
 import { RivalNests } from './entities/RivalNests.tsx'
 import { Flocks } from './entities/Flocks.tsx'
 import { Waterfalls } from './world/Waterfalls.tsx'
+import { Soundscape } from './audio/Soundscape.tsx'
 import { Splashes } from './world/Splashes.tsx'
 import { T, WORLD } from './game/constants.ts'
 
@@ -90,6 +91,7 @@ export default function App() {
         <Shadow state={bird} seed={SEED} />
         <Bird state={bird} seed={SEED} spawn={spawn} heading={site.heading} nest={nest} />
         <ChaseCamera state={bird} seed={SEED} />
+        <Soundscape bird={bird} />
         <DevBridge bird={bird} />
       </Canvas>
       <HUD nest={nest} bird={bird} seed={SEED} />

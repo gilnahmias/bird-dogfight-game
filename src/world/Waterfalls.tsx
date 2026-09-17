@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { BufferAttribute, BufferGeometry, DoubleSide, type ShaderMaterial, Vector3 } from 'three'
 import { findWaterfalls, type Waterfall } from './waterfalls.ts'
+import { audible } from '../audio/ears.ts'
 import { TIME_OPERATOR } from './waterfallFlow.ts'
 
 /**
@@ -220,6 +221,9 @@ export function Waterfalls({ target, seed }: { target: { current: Vector3 }; see
     findWaterfalls(seed, target.current, null, 8, FALL_RANGE),
   )
   const built = useRef(target.current.clone())
+  useEffect(() => {
+    audible.falls = falls
+  }, [falls])
 
   useFrame(() => {
     if (target.current.distanceTo(built.current) < RESTOCK_AFTER) return

@@ -6,13 +6,14 @@
  * bird stalls silently otherwise, and a death the player could not see coming is
  * the fastest way to lose them.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Vector3 } from 'three'
 import type { BirdState } from '../flight/physics.ts'
 import { FWD } from '../flight/physics.ts'
 import { useGame } from '../game/store.ts'
 import { T } from '../game/constants.ts'
 import { tarnSitesNear } from '../world/terrain.ts'
+import { isMuted, onMuteChange } from '../audio/engine.ts'
 import { rivalNestsNear } from '../entities/rivalNests.ts'
 
 export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed: string }) {
@@ -34,6 +35,7 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
     rivalsBeaten,
     mobbed,
   } = useGame()
+  const muted = useSyncExternalStore(onMuteChange, isMuted)
 
   return (
     <div className="hud">
@@ -116,6 +118,7 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
         <span><b>&uarr;</b> nose down</span>
         <span><b>space</b> brake &amp; talons</span>
         <span><b>x</b> drop</span>
+        <span><b>m</b> {muted ? 'unmute' : 'mute'}</span>
         <span>catch prey low, bank it at the nest</span>
         <span>beat a rival by diving on it from above, talons out</span>
         <span>raid rival nests, steal from rivals carrying food</span>

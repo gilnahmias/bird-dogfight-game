@@ -10,6 +10,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Group, Quaternion, Vector3 } from 'three'
+import { audible } from '../audio/ears.ts'
 import type { BirdState } from '../flight/physics.ts'
 import { FWD } from '../flight/physics.ts'
 import { BirdModel, type WingJoints } from '../flight/RaptorModel.tsx'
@@ -246,6 +247,7 @@ export function Rivals({ bird, seed, home }: { bird: BirdState; seed: string; ho
       }
     }
 
+    audible.rivals = rivals.current
     if (useGame.getState().threat !== threat) useGame.setState({ threat })
     if (threat !== 'none') {
       useGame.setState({ threatBearing: bearing, threatAbove: above, threatCarrying: carrying })

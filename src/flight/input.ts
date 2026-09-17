@@ -7,10 +7,10 @@
  * raptor they are one movement: the feet come forward to slow down, to land, and
  * to take something. X opens them again and lets the catch go.
  *
- * Touch drives the same controls, not different ones: the thumb stick is the
- * arrow keys (pushed up is nose down, exactly like the Up arrow), the TALONS
- * button is Space and DROP is X. Someone who learns on a phone can pick up the
- * keyboard without relearning which way is down.
+ * Touch drives the same controls with one deliberate difference: the thumb stick
+ * points where the bird should go, so up climbs and down dives. Keys are pressed
+ * like a plane's stick, but a thumb dragged across glass is pointing, and
+ * plane-style pitch felt backwards there. TALONS is Space and DROP is X.
  *
  * Pointers, whatever kind: a tap on the pause screen resumes and a tap on the
  * crash screen flies again. A mouse click in flight pauses. A touch in flight

@@ -45,8 +45,8 @@ function Stick() {
       dy *= STICK_RADIUS / length
     }
     setKnob({ x: dx, y: dy })
-    // Screen down is pulling back: nose up, which is positive pitch, like the Down arrow.
-    setTouch({ roll: stickAxis(dx), pitch: stickAxis(dy) })
+    // Screen up is climb (positive pitch, nose up): a thumb points where to go.
+    setTouch({ roll: stickAxis(dx), pitch: -stickAxis(dy) })
   }
 
   const release = (e: PointerEvent) => {

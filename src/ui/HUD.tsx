@@ -128,7 +128,7 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
 
       {touch && perched && !dead && !paused && (
         <div className="touch-hint">
-          stick up to dive, back to climb &middot; hold TALONS to catch
+          stick up to climb, down to dive &middot; hold TALONS to catch
         </div>
       )}
 

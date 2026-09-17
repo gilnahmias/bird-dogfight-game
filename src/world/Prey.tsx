@@ -8,7 +8,7 @@
  */
 import { useCallback, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { DoubleSide, Group, type Mesh, Vector3 } from 'three'
+import { DoubleSide, Group, type Mesh, type MeshBasicMaterial, Vector3 } from 'three'
 import type { BirdState } from '../flight/physics.ts'
 import { FWD, UP } from '../flight/physics.ts'
 import {
@@ -19,16 +19,21 @@ import {
   GAIT,
   hopLift,
   makeFood,
+  NEST_GRAB_BONUS,
+  pickTarget,
+  snakeTail,
   PREY,
   spawnPreyAround,
   stepPrey,
   stockedFish,
+  SNAKE_LENGTH,
   surfaceFor,
   talonPoint,
   valueOf,
 } from './prey.ts'
 import { useGame } from '../game/store.ts'
-import { meshHeightAt } from './terrain.ts'
+import { stageFor } from '../game/progress.ts'
+import { meshHeightAt, normalAt } from './terrain.ts'
 import { WORLD } from '../game/constants.ts'
 import { input } from '../flight/input.ts'
 import { markRaided, nestFood, rivalNestsNear } from '../entities/rivalNests.ts'
@@ -83,6 +88,7 @@ export function PreyField({
   const lastRestock = useRef(0)
   const lastTopUp = useRef(new Vector3(Infinity, 0, Infinity))
   const groups = useRef<Map<number, Group>>(new Map())
+  const ring = useRef<Mesh>(null)
   const [rendered, setRendered] = useState<Prey[]>([])
 
   const sync = useCallback(() => setRendered([...alive.current, ...carried.current]), [])
@@ -114,6 +120,10 @@ export function PreyField({
   */
   const stockNests = useCallback(
     (current: Prey[], now: number) => {
+      // No nests yet at this stage, so no food in them either.
+      if (!stageFor(useGame.getState().bankedCount).nests) {
+        return current.some((p) => p.nest !== undefined) ? current.filter((p) => p.nest === undefined) : current
+      }
       const known = new Set([...current, ...carried.current].map((p) => p.id))
       const food = rivalNestsNear(bird.pos.x, bird.pos.z, NEST_STOCK_RANGE, seed, nest).flatMap((n) =>
         nestFood(n, now),
@@ -321,6 +331,46 @@ export function PreyField({
       }
     }
 
+    // --- The target ring ----------------------------------------------------
+    /*
+      Low, or with the talons out: mark the animal the bird is lined up on, at
+      the size of its catch zone, and turn it gold when a pass right now would
+      take it. It answers "which one am I going for" and "am I close enough",
+      which is most of what made the catch feel like luck.
+    */
+    const marker = ring.current
+    if (marker) {
+      const ground = meshHeightAt(bird.pos.x, bird.pos.z, seed, WORLD.lodSegments[0])
+      const hunting = !bird.dead && !bird.perched && (bird.pos.y - ground < TARGET_ALTITUDE || bird.talons > 0.3)
+      fwd.copy(FWD).applyQuaternion(bird.quat)
+      const load = loadOf(carried.current)
+      const target = hunting ? pickTarget(bird.pos, fwd, alive.current, load, T.maxLoad) : null
+      marker.visible = target !== null
+      if (target) {
+        if (target.kind === 'snake' && !target.still) {
+          snakeTail(target, marker.position).add(target.pos).multiplyScalar(0.5)
+        } else {
+          marker.position.copy(target.pos)
+        }
+        // Laid on the slope rather than flat, or half of it sinks into the hill.
+        // Flat on water and in nests, where the ground underneath is not the surface.
+        if (target.kind === 'fish' || target.nest !== undefined) slope.set(0, 1, 0)
+        else slope.fromArray(normalAt(marker.position.x, marker.position.z, seed))
+        marker.quaternion.setFromUnitVectors(RING_FACE, slope)
+        marker.position.y = target.pos.y + 0.6
+        const reach = PREY[target.kind].grabRadius + (target.nest !== undefined ? NEST_GRAB_BONUS : 0)
+        marker.scale.setScalar(reach * (1 + Math.sin(time * 5) * 0.04))
+        down.copy(UP).applyQuaternion(bird.quat).negate()
+        // Where the talons will be a moment from now: gold has to come early
+        // enough to act on, not on the frame the catch would happen anyway.
+        talonPoint(bird.pos, fwd, down, 1, grab).addScaledVector(bird.vel, RING_LEAD)
+        const inReach = canCatch({ talonPoint: grab, talons: 1, load, maxLoad: T.maxLoad }, target)
+        const material = marker.material as MeshBasicMaterial
+        material.color.set(inReach ? RING_READY : RING_AIMING)
+        material.opacity = inReach ? 0.95 : 0.55
+      }
+    }
+
     // Carried animals ride in the talons.
     for (let i = 0; i < carried.current.length; i++) {
       const group = groups.current.get(carried.current[i].id)
@@ -341,6 +391,22 @@ export function PreyField({
 
   return (
     <group>
+      <mesh ref={ring} visible={false} renderOrder={2}>
+        {/* Unit radius: scaled to the catch zone of whatever it marks. */}
+        <ringGeometry args={[0.86, 1, 48]} />
+        {/* Drawn over the ground, not into it: a marker half hidden by the hillside
+            it sits on, or by the crest in front of it, marks nothing. */}
+        <meshBasicMaterial
+          color={RING_AIMING}
+          transparent
+          opacity={0.55}
+          depthWrite={false}
+          depthTest={false}
+          fog={false}
+          // Laid on a slope, the chase camera is as often under its plane as over it.
+          side={DoubleSide}
+        />
+      </mesh>
       {rendered.map((prey) => (
         <group
           key={prey.id}
@@ -359,6 +425,16 @@ export function PreyField({
 
 /* oxlint-enable react/immutability */
 
+/** Below this height above the ground, the bird counts as hunting. */
+const TARGET_ALTITUDE = 40
+/** Seconds of warning the gold ring gives: about the time the talons take to come out. */
+const RING_LEAD = 0.35
+/** The ring geometry faces +Z; this turns it to face along the ground's normal. */
+const RING_FACE = new Vector3(0, 0, 1)
+const slope = new Vector3()
+const RING_AIMING = '#f2f6fa'
+const RING_READY = '#ffc94a'
+
 const FUR = '#8a6b4a'
 const FUR_DARK = '#5d4630'
 const SCALE = '#8fa7b4'
@@ -373,8 +449,8 @@ const SNAKE_DARK = '#2f3419'
 const SNAKE_SEGMENTS = 11
 const SEGMENT_GAP = 0.26
 const SNAKE_SCALE = 1.35
-/** Head to tail, in metres, for laying the body on a slope. */
-const SNAKE_LENGTH = SNAKE_SEGMENTS * SEGMENT_GAP * SNAKE_SCALE
+// SNAKE_SEGMENTS * SEGMENT_GAP * SNAKE_SCALE is SNAKE_LENGTH in prey.ts, which the
+// catch measures along: change one and the other has to follow.
 
 /**
  * A snake: a tapering chain of segments, with a wave running down it.

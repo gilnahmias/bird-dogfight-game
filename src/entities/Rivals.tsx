@@ -23,17 +23,23 @@ import { rivalNestsNear, type RivalNest } from './rivalNests.ts'
 import { Animal } from '../world/Prey.tsx'
 import type { PreyKind } from '../world/prey.ts'
 import { giveToTalons } from '../world/talonGifts.ts'
-import { RIVAL, resolveStrike, stepRival, type Rival } from './rivals.ts'
+import { RIVAL, playerStrikes, resolveStrike, stepRival, type Rival } from './rivals.ts'
+import { stageFor } from '../game/progress.ts'
 
-/** How many rivals are in the air at once. */
-const MAX_RIVALS = 2
 /** How far out they appear, and how far out they are forgotten. */
 const SPAWN_RANGE = 520
 const FORGET_RANGE = 1500
 /** Seconds between a kill (either way) and the next rival turning up. */
 const RESPAWN_DELAY = 12
-/** Seconds after being hit during which the player cannot be hit again. */
-const MERCY = 4
+/**
+ * Seconds after being hit during which the player cannot be hit again.
+ *
+ * Long enough to get home: playtested at four, a second pass usually came
+ * before the player had even picked their dropped food back up.
+ */
+const MERCY = 10
+/** And the rival that landed it breaks off for this long, rather than circling straight back. */
+const BREAK_OFF = 15
 /** Speed the player keeps after a rival connects. */
 const KNOCK = 0.55
 
@@ -58,7 +64,13 @@ const TERRITORY = 480
 /** Seconds between looks for nests the bird has wandered near. */
 const TERRITORY_CHECK = 0.5
 
-function spawnRival(near: Vector3, heading: Vector3, seed: string, from: RivalNest | null): Rival {
+function spawnRival(
+  near: Vector3,
+  heading: Vector3,
+  seed: string,
+  from: RivalNest | null,
+  mayCarry = false,
+): Rival {
   let x: number
   let z: number
   let y: number
@@ -97,7 +109,7 @@ function spawnRival(near: Vector3, heading: Vector3, seed: string, from: RivalNe
     dying: 0,
     kind: from ? from.kind : id % RIVAL_KINDS.length,
     // A defender is at home, so it is not carrying; a wanderer may be.
-    carrying: !from && Math.random() < CARRY_CHANCE ? PLUNDER[Math.floor(Math.random() * PLUNDER.length)] : null,
+    carrying: !from && mayCarry && Math.random() < CARRY_CHANCE ? PLUNDER[Math.floor(Math.random() * PLUNDER.length)] : null,
     nest: from ? from.id : null,
   }
 }
@@ -136,36 +148,40 @@ export function Rivals({ bird, seed, home }: { bird: BirdState; seed: string; ho
         !(r.dead && (r.dying > 6 || r.pos.y < heightAt(r.pos.x, r.pos.z, seed))),
     )
     cooldown.current -= dt
-    // None turn up while the bird is standing in its nest: the game should not
-    // open with something already hunting you.
     /*
-      Nothing hunts you until you have banked something.
+      How many, how fast, and from where, is the stage's call.
 
-      The first trip out is the tutorial - find prey, catch it, carry it home -
+      The first trips out are the tutorial - find prey, catch it, carry it home -
       and a rival stooping on a player who has not worked out the talons yet
-      teaches nothing. Once there is food in the nest there is something worth
-      taking, and the valley notices.
+      teaches nothing. Rivals only arrive once the player has banked enough to
+      have learned the hunt, and the first one is slower than the player.
+      None turn up while the bird is standing in its nest either.
     */
+    const stage = stageFor(useGame.getState().bankedCount)
+    // Starting over puts the valley back to sleep straight away.
+    if (stage.rivals === 0 && rivals.current.some((r) => !r.dead)) {
+      rivals.current = rivals.current.filter((r) => r.dead)
+    }
     territoryClock.current -= dt
-    if (territoryClock.current <= 0 && !bird.perched && !bird.dead) {
+    if (stage.nests && territoryClock.current <= 0 && !bird.perched && !bird.dead) {
       territoryClock.current = TERRITORY_CHECK
       for (const owned of rivalNestsNear(bird.pos.x, bird.pos.z, TERRITORY, seed, home)) {
         const defended = rivals.current.some((r) => r.nest === owned.id && !r.dead)
-        if (!defended && rivals.current.length < MAX_RIVALS + 1) {
+        if (!defended && rivals.current.length < stage.rivals + 1) {
           rivals.current.push(spawnRival(bird.pos, fwd, seed, owned))
         }
       }
     }
 
-    const contested = useGame.getState().bankedCount > 0
     if (
-      contested &&
-      rivals.current.length < MAX_RIVALS &&
+      rivals.current.length < stage.rivals &&
       cooldown.current <= 0 &&
       !bird.perched &&
       !bird.dead
     ) {
-      rivals.current.push(spawnRival(bird.pos, fwd.copy(FWD).applyQuaternion(bird.quat), seed, null))
+      rivals.current.push(
+        spawnRival(bird.pos, fwd.copy(FWD).applyQuaternion(bird.quat), seed, null, stage.carriers),
+      )
       cooldown.current = RESPAWN_DELAY
     }
     if (rivals.current.length !== before) sync()
@@ -181,7 +197,7 @@ export function Rivals({ bird, seed, home }: { bird: BirdState; seed: string; ho
     let carrying = false
 
     for (const rival of rivals.current) {
-      stepRival(rival, quarry, dt, time)
+      stepRival(rival, quarry, dt, time, stage.pace)
       if (rival.dead) continue
 
       // Never let a rival fly into the ground.
@@ -195,16 +211,15 @@ export function Rivals({ bird, seed, home }: { bird: BirdState; seed: string; ho
       const attacker = { pos: rival.pos, vel: rival.vel, forward: rivalFwd }
       let strike = resolveStrike(attacker, player)
       /*
-        Talons out, and the player is the one with the advantage: reach further.
+        Talons out: the player's own strike, with more reach, and even passes
+        going the player's way.
 
-        Checked as a second pass rather than by simply widening the reach,
-        because a wider reach would help whichever bird was winning - including
-        the rival. This is the player's weapon, so it only ever lands the
-        player's blow.
+        Checked as a second pass rather than by widening the symmetric rule,
+        because that would help whichever bird was winning - including the rival.
+        This is the player's weapon, so it only ever lands the player's blow.
       */
-      if (strike === 'none' && bird.talons > 0.4) {
-        const extended = resolveStrike(attacker, player, RIVAL.reach + RIVAL.talonBonus)
-        if (extended === 'target') strike = extended
+      if (strike === 'none' && bird.talons > 0.4 && playerStrikes(attacker, player)) {
+        strike = 'target'
       }
 
       if (strike === 'attacker' && mercy.current <= 0 && !bird.dead) {
@@ -214,7 +229,7 @@ export function Rivals({ bird, seed, home }: { bird: BirdState; seed: string; ho
         bird.vel.multiplyScalar(KNOCK)
         mercy.current = MERCY
         rival.mode = 'overshoot'
-        rival.timer = RIVAL.recover
+        rival.timer = BREAK_OFF
         useGame.setState({ struck: useGame.getState().struck + 1 })
       } else if (strike === 'target') {
         // The player got it: exactly the same rule, read the other way round.

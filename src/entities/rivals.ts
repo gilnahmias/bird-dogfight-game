@@ -117,11 +117,13 @@ export const RIVAL = {
   /**
    * How close the talons have to be for an exchange to happen at all.
    *
-   * Roughly a wingspan and a half. Nine metres was measured to be unhittable:
-   * a stoop that flies its last line rather than steering all the way in misses
-   * by fifteen or twenty, and every pass came to nothing.
+   * Nine metres was measured to be unhittable: a stoop that flies its last line
+   * rather than steering all the way in misses by fifteen or twenty, and every
+   * pass came to nothing. Fourteen was the other way - playtested, rivals took
+   * the player's food almost every time. Eleven lets a straight-flying bird be
+   * caught and a bird that jinks get away.
    */
-  reach: 14,
+  reach: 11,
   /**
    * Closing speed below which a pass is just two birds crossing.
    *
@@ -256,6 +258,24 @@ export function resolveStrike(a: Combatant, b: Combatant, reach: number = RIVAL.
   return aWins ? 'attacker' : 'target'
 }
 
+/**
+ * The player's own strike, with the talons out.
+ *
+ * Not symmetric, on purpose: the talons are the player's weapon and nothing a
+ * rival has. Within talon reach the player wins unless the RIVAL holds the
+ * advantage - so an even pass, level and side by side, goes to the bird that
+ * put its feet out. Asking the player for an advantage of its own as well made
+ * diving on a rival the hardest thing in the game, and it is meant to be the
+ * payoff of it.
+ */
+export function playerStrikes(rival: Combatant, player: Combatant, reach = RIVAL.reach + RIVAL.talonBonus): boolean {
+  if (rival.pos.distanceTo(player.pos) > reach) return false
+  return !hasAdvantage(rival, player)
+}
+
+/** How fast a rival flies. The stage the player has reached decides it. */
+export type Pace = { cruise: number; diveSpeed: number }
+
 /** What the rival needs to know about the bird it is hunting. */
 export type Quarry = {
   pos: Vector3
@@ -324,7 +344,13 @@ const aim = new Vector3()
  * spend its time recovering from its own mistakes, and the fight is meant to be
  * about the player's.
  */
-export function stepRival(rival: Rival, quarry: Quarry, dt: number, time: number): Rival {
+export function stepRival(
+  rival: Rival,
+  quarry: Quarry,
+  dt: number,
+  time: number,
+  pace: Pace = RIVAL,
+): Rival {
   if (rival.dead) {
     rival.dying += dt
     // Killed: it falls, and keeps whatever sideways speed it had.
@@ -341,7 +367,7 @@ export function stepRival(rival: Rival, quarry: Quarry, dt: number, time: number
   const range = toQuarry.length()
   if (range > 1e-3) toQuarry.divideScalar(range)
 
-  let speed: number = RIVAL.cruise
+  let speed: number = pace.cruise
   switch (rival.mode) {
     case 'patrol': {
       if (range < RIVAL.approachRange) {
@@ -350,7 +376,7 @@ export function stepRival(rival: Rival, quarry: Quarry, dt: number, time: number
         desired.copy(toQuarry)
         desired.y *= 0.3
         desired.normalize()
-        speed = RIVAL.cruise
+        speed = pace.cruise
       } else {
         // A slow circle over its own ground.
         const angle = time * 0.22 * rival.spin + rival.id
@@ -387,7 +413,7 @@ export function stepRival(rival: Rival, quarry: Quarry, dt: number, time: number
       // it goes up.
       desired.y = lift
       desired.normalize()
-      speed = range > 160 ? RIVAL.cruise : RIVAL.cruise * 0.8
+      speed = range > 160 ? pace.cruise : pace.cruise * 0.8
       break
     }
     case 'commit': {
@@ -411,13 +437,13 @@ export function stepRival(rival: Rival, quarry: Quarry, dt: number, time: number
           been. Measured, a rival diving on a player flying dead straight never
           got closer than fifty-eight metres.
         */
-        const flight = Math.min(3.5, (range / RIVAL.diveSpeed) * 1.25)
+        const flight = Math.min(3.5, (range / pace.diveSpeed) * 1.25)
         aim.copy(quarry.pos).addScaledVector(quarry.vel, flight)
         desired.subVectors(aim, rival.pos).normalize()
       } else {
         desired.copy(rival.vel).normalize()
       }
-      speed = RIVAL.diveSpeed
+      speed = pace.diveSpeed
       break
     }
     case 'overshoot': {
@@ -433,7 +459,7 @@ export function stepRival(rival: Rival, quarry: Quarry, dt: number, time: number
       desired.copy(rival.vel).normalize()
       desired.y = 0.12
       desired.normalize()
-      speed = RIVAL.cruise * 0.7
+      speed = pace.cruise * 0.7
       break
     }
   }

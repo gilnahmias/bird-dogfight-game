@@ -15,6 +15,8 @@ import { T } from '../game/constants.ts'
 import { tarnSitesNear } from '../world/terrain.ts'
 import { isMuted, onMuteChange } from '../audio/engine.ts'
 import { useTouchMode } from './touchMode.ts'
+import { stageFor } from '../game/progress.ts'
+import { OWN_POINTER } from '../flight/input.ts'
 import { rivalNestsNear } from '../entities/rivalNests.ts'
 
 export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed: string }) {
@@ -36,7 +38,9 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
     rivalsBeaten,
     mobbed,
     paused,
+    bankedCount,
   } = useGame()
+  const stage = stageFor(bankedCount)
   const muted = useSyncExternalStore(onMuteChange, isMuted)
   const touch = useTouchMode()
 
@@ -79,7 +83,10 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
       <div className="score">
         <div className="score-value">{banked}</div>
         <div className="score-label">banked</div>
+        <div className="stage-label">stage {stage.number} of 5</div>
       </div>
+
+      <StageNews stage={stage.number} news={stage.news} />
 
       {perched && !dead && !paused && (
         <div className="perched">
@@ -106,7 +113,7 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
 
       {carried > 0 && !dead && <Pointer target={nest} label="nest" bird={bird} tone="home" />}
       {carried === 0 && !dead && <LakePointer bird={bird} seed={seed} />}
-      {carried === 0 && !dead && <RivalNestPointer bird={bird} seed={seed} home={nest} />}
+      {carried === 0 && !dead && stage.nests && <RivalNestPointer bird={bird} seed={seed} home={nest} />}
 
       {rivalsBeaten > 0 && (
         <div className="rivals-beaten">rivals beaten {rivalsBeaten}</div>
@@ -123,6 +130,20 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
         <div className="paused">
           <div className="paused-title">PAUSED</div>
           <div className="paused-hint">{touch ? 'tap' : 'click'} to keep flying</div>
+          {bankedCount > 0 && (
+            <button
+              type="button"
+              className="start-over"
+              {...{ [OWN_POINTER]: '' }}
+              onPointerDown={() => {
+                const game = useGame.getState()
+                game.startOver()
+                game.togglePause()
+              }}
+            >
+              start over from stage 1
+            </button>
+          )}
         </div>
       )}
 
@@ -147,6 +168,37 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
     </div>
   )
 }
+
+/**
+ * The announcement when a new stage opens: what just arrived, and what to do
+ * about it. Only for a stage reached during play - not for the one a returning
+ * player loads straight into.
+ */
+function StageNews({ stage, news }: { stage: number; news: string | null }) {
+  const seen = useRef(stage)
+  const [shown, setShown] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (stage <= seen.current) {
+      seen.current = stage
+      return
+    }
+    seen.current = stage
+    setShown(news)
+    const timer = setTimeout(() => setShown(null), NEWS_SECONDS * 1000)
+    return () => clearTimeout(timer)
+  }, [stage, news])
+
+  if (!shown) return null
+  return (
+    <div className="stage-news">
+      <div className="stage-news-title">stage {stage}</div>
+      <div className="stage-news-text">{shown}</div>
+    </div>
+  )
+}
+
+const NEWS_SECONDS = 7
 
 /**
  * Which way something is, and how far.

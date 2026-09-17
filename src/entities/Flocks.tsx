@@ -22,6 +22,7 @@ import { audible } from '../audio/ears.ts'
 import type { BirdState } from '../flight/physics.ts'
 import { RIGHT } from '../flight/physics.ts'
 import { useGame } from '../game/store.ts'
+import { stageFor } from '../game/progress.ts'
 import {
   type Flock,
   FLOCK_STYLE,
@@ -127,7 +128,8 @@ export function Flocks({ bird, seed }: { bird: BirdState; seed: string }) {
     }
 
     // --- The crows notice you -------------------------------------------
-    if (!bird.dead && !bird.perched) {
+    // Not until the stage says so: the first trips out are peaceful.
+    if (!bird.dead && !bird.perched && stageFor(useGame.getState().bankedCount).crows) {
       for (const flock of flocks) {
         if (flock.kind !== 'crow') continue
         if (mobs.current.some((m) => m.flock === flock.id)) continue

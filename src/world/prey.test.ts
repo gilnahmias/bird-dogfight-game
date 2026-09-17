@@ -17,6 +17,10 @@ import {
   GAIT,
   standable,
   stepPrey,
+  CATCH_HEIGHT,
+  pickTarget,
+  SNAKE_LENGTH,
+  snakeTail,
 } from './prey.ts'
 import { heightAt, slopeAt, TARN_RADIUS, tarnPoolAt, tarnSitesNear } from './terrain.ts'
 import { findNestSite } from './nest.ts'
@@ -91,6 +95,29 @@ test('prey out of reach of the talons is not caught', () => {
   })
   assert.ok(canCatch(at(PREY.rabbit.grabRadius - 0.1), prey))
   assert.ok(!canCatch(at(PREY.rabbit.grabRadius + 0.5), prey))
+})
+
+test('over the animal and near the ground is a catch, even with the feet a few metres up', () => {
+  // On a slope the bird cannot put its talons at the animal's own height.
+  const prey = animal('rabbit', new Vector3(0, 0, 0))
+  const pass = (x: number, y: number) => ({ talonPoint: new Vector3(x, y, 0), talons: 1, load: 0, maxLoad: T.maxLoad })
+  assert.ok(canCatch(pass(3, 5), prey), 'a pass five metres over it, a little to one side')
+  assert.ok(!canCatch(pass(0, CATCH_HEIGHT + 4), prey), 'a pass ten metres up is flying over, not catching')
+})
+
+test('a snake is caught anywhere along its body, not only at the head', () => {
+  const snake = animal('snake', new Vector3(0, 0, 0))
+  snake.heading = 0 // facing -Z, so the body trails toward +Z
+  const middle = snakeTail(snake).add(snake.pos).multiplyScalar(0.5)
+  const beside = (offset: number, z: number) => ({
+    talonPoint: new Vector3(offset, 2, z),
+    talons: 1,
+    load: 0,
+    maxLoad: T.maxLoad,
+  })
+  assert.ok(canCatch(beside(PREY.snake.grabRadius - 0.2, middle.z), snake), 'beside the middle of the body')
+  assert.ok(canCatch(beside(0, SNAKE_LENGTH + PREY.snake.grabRadius - 0.2), snake), 'just past the tail')
+  assert.ok(!canCatch(beside(0, SNAKE_LENGTH + PREY.snake.grabRadius + 1), snake), 'well past the tail')
 })
 
 test('the catch is forgiving enough to be hit while actually flying', () => {
@@ -277,4 +304,17 @@ test('food in a rival nest can be taken from anywhere over the bowl', () => {
   const inANest: Prey = { ...inTheField, id: 2, pos: new Vector3(7, 100, 0), still: true, nest: 5 }
   assert.ok(!canCatch(attempt, inTheField), 'seven metres off is out of reach for a rabbit in a field')
   assert.ok(canCatch(attempt, inANest), 'seven metres off is still over the bowl of a nest')
+})
+
+test('the target ring picks the animal ahead, not the one behind, and only what fits', () => {
+  const bird = new Vector3(0, 20, 0)
+  const forward = new Vector3(0, 0, -1)
+  const ahead = animal('fish', new Vector3(0, 0, -40))
+  const behind = animal('mouse', new Vector3(0, 0, 10))
+  const heavy = animal('rabbit', new Vector3(0, 0, -20))
+  heavy.id = 2
+  assert.equal(pickTarget(bird, forward, [ahead, behind], 0, T.maxLoad), ahead)
+  assert.equal(pickTarget(bird, forward, [ahead, heavy], 0, T.maxLoad), heavy, 'the nearer one ahead')
+  assert.equal(pickTarget(bird, forward, [ahead, heavy], T.maxLoad - 2, T.maxLoad), ahead, 'no room for the rabbit')
+  assert.equal(pickTarget(bird, forward, [behind], 0, T.maxLoad), null, 'nothing ahead')
 })

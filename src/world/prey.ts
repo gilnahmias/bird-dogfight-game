@@ -47,13 +47,19 @@ export type PreySpec = {
  * down, get low, and commit.
  */
 export const PREY: Record<PreyKind, PreySpec> = {
-  mouse: { weight: 1, value: 20, grabRadius: 4.0 },
-  fish: { weight: 2, value: 45, grabRadius: 5.0 },
+  /*
+    Measured horizontally, and generous. Playtested at 4-5m these were a test of
+    precision nobody enjoyed: adults could barely take a snake, and the game is
+    for a ten year old. Finding the animal and getting down to it is the skill;
+    threading the talons through a one-metre gap is not.
+  */
+  mouse: { weight: 1, value: 20, grabRadius: 5.5 },
+  fish: { weight: 2, value: 45, grabRadius: 6.5 },
   // A snake moves, which makes it a target you have to lead rather than one you
-  // can simply fall on. Worth more than a fish for that, and a shade more
-  // forgiving to grab, because the body you are aiming at is long.
-  snake: { weight: 3, value: 70, grabRadius: 5.0 },
-  rabbit: { weight: 4, value: 100, grabRadius: 4.5 },
+  // can simply fall on. Worth more than a fish for that - and anywhere along its
+  // body counts, not just the head.
+  snake: { weight: 3, value: 70, grabRadius: 6.0 },
+  rabbit: { weight: 4, value: 100, grabRadius: 6.0 },
 }
 
 export type Prey = {
@@ -269,7 +275,89 @@ export function canCatch(attempt: CatchAttempt, prey: Prey): boolean {
   const spec = PREY[prey.kind]
   if (attempt.load + spec.weight > attempt.maxLoad) return false
   const reach = spec.grabRadius + (prey.nest !== undefined ? NEST_GRAB_BONUS : 0)
-  return attempt.talonPoint.distanceTo(prey.pos) <= reach
+  const at = attempt.talonPoint
+  /*
+    A cylinder, not a sphere.
+
+    A sphere asked for the talons to be within a few metres in height as well,
+    and on a slope - where the snakes and rabbits live - the bird cannot get its
+    feet that low without flying into the hill uphill of the animal. Over the
+    animal and near enough the ground is a catch.
+  */
+  if (Math.abs(at.y - prey.pos.y) > CATCH_HEIGHT) return false
+  if (prey.kind === 'snake' && !prey.still) {
+    return flatDistanceToSegment(at, prey.pos, snakeTail(prey, tail)) <= reach
+  }
+  return Math.hypot(at.x - prey.pos.x, at.z - prey.pos.z) <= reach
+}
+
+/** How far ahead the target ring looks for something to catch. */
+export const TARGET_RANGE = 80
+
+/**
+ * The animal worth pointing out: the nearest one ahead, below the bird, that
+ * the talons still have room for. Null when there is nothing.
+ *
+ * This is the lock-on. Playtesting found the catch was not the hard part so
+ * much as knowing which animal the bird was lined up on, and whether the pass
+ * was going to be close enough.
+ */
+export function pickTarget(
+  pos: Vector3,
+  forward: Vector3,
+  animals: readonly Prey[],
+  load: number,
+  maxLoad: number,
+): Prey | null {
+  const fx = forward.x
+  const fz = forward.z
+  const flat = Math.hypot(fx, fz) || 1
+  let best: Prey | null = null
+  let bestScore = Infinity
+  for (const prey of animals) {
+    if (prey.caught || load + PREY[prey.kind].weight > maxLoad) continue
+    const dx = prey.pos.x - pos.x
+    const dz = prey.pos.z - pos.z
+    const distance = Math.hypot(dx, dz)
+    if (distance > TARGET_RANGE || prey.pos.y > pos.y + CATCH_HEIGHT) continue
+    // Ahead, or so close it is effectively underneath.
+    const ahead = distance < 1 ? 1 : (dx * fx + dz * fz) / (distance * flat)
+    if (ahead < 0.5 && distance > PREY[prey.kind].grabRadius) continue
+    // Nearer and straighter ahead wins.
+    const score = distance * (2 - ahead)
+    if (score < bestScore) {
+      bestScore = score
+      best = prey
+    }
+  }
+  return best
+}
+
+/** How far above or below the animal the talons may be and still take it. */
+export const CATCH_HEIGHT = 6
+
+/** Head to tail, in metres. The model is drawn to this length. */
+export const SNAKE_LENGTH = 3.86
+
+const tail = new Vector3()
+
+/** Where a snake's tail is: behind the head, along the way it faces. */
+export function snakeTail(prey: Prey, out = new Vector3()): Vector3 {
+  return out.set(
+    prey.pos.x + Math.sin(prey.heading) * SNAKE_LENGTH,
+    prey.pos.y,
+    prey.pos.z + Math.cos(prey.heading) * SNAKE_LENGTH,
+  )
+}
+
+/** Horizontal distance from a point to a line segment. */
+function flatDistanceToSegment(p: Vector3, a: Vector3, b: Vector3): number {
+  const dx = b.x - a.x
+  const dz = b.z - a.z
+  const lengthSq = dx * dx + dz * dz
+  const t =
+    lengthSq < 1e-9 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / lengthSq))
+  return Math.hypot(p.x - (a.x + dx * t), p.z - (a.z + dz * t))
 }
 
 /**
@@ -330,7 +418,7 @@ export const BANK_CEILING = 45
 export const GAIT = {
   snake: {
     /** Metres a second along the ground. */
-    speed: 1.6,
+    speed: 1.1,
     /** How hard the path meanders, radians a second at the peak of a swing. */
     meander: 0.9,
   },

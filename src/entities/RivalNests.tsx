@@ -12,6 +12,8 @@ import type { Vector3 } from 'three'
 import { Nest } from '../world/Nest.tsx'
 import { RIVAL_KINDS } from './rivalKinds.ts'
 import { rivalNestsNear, type RivalNest } from './rivalNests.ts'
+import { useGame } from '../game/store.ts'
+import { stageFor } from '../game/progress.ts'
 
 /** How far out nests are drawn. Past the fog, because a tall tree is a landmark. */
 const DRAW_RANGE = 2200
@@ -30,6 +32,8 @@ export function RivalNests({
     rivalNestsNear(target.current.x, target.current.z, DRAW_RANGE, seed, home),
   )
   const built = useRef(target.current.clone())
+  // Rival nests are part of the valley that wakes up later.
+  const awake = useGame((s) => stageFor(s.bankedCount).nests)
 
   useFrame(() => {
     if (target.current.distanceTo(built.current) < RESTOCK_AFTER) return
@@ -37,6 +41,7 @@ export function RivalNests({
     setNests(rivalNestsNear(target.current.x, target.current.z, DRAW_RANGE, seed, home))
   })
 
+  if (!awake) return null
   return (
     <group>
       {nests.map((n) => (

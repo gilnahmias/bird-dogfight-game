@@ -11,6 +11,7 @@ import {
   type Quarry,
   type Rival,
   stepRival,
+  playerStrikes,
 } from './rivals.ts'
 
 const at = (x: number, y: number, z: number, vx = 0, vy = 0, vz = 0): Combatant => ({
@@ -169,4 +170,26 @@ test('the extra reach cannot be used to hit the player', () => {
   // pins the thing that makes that safe - the extended call still names the
   // rival as the winner, so accepting only 'target' throws it away.
   assert.equal(resolveStrike(rival, player, RIVAL.reach + RIVAL.talonBonus), 'attacker')
+})
+
+test('an even pass with the talons out goes to the player', () => {
+  // Level, side by side, neither above nor on the other's tail.
+  const rival = at(0, 0, 0, 0, 0, -26)
+  const player = at(8, 0, 0, 0, 0, -26)
+  assert.equal(resolveStrike(rival, player, RIVAL.reach + RIVAL.talonBonus), 'none', 'the symmetric rule calls it a miss')
+  assert.ok(playerStrikes(rival, player), 'talons out should take it')
+})
+
+test('talons out do not beat a rival that has the height', () => {
+  const rival = at(0, 18, 4, 0, -20, -26)
+  const player = at(0, 0, 0, 0, 0, -22)
+  assert.ok(!playerStrikes(rival, player))
+})
+
+test('a slower pace is flown at that pace', () => {
+  const rival = rivalAt(200)
+  // Far enough off that it is closing at full cruise, not easing in.
+  const distant = { ...flying, pos: new Vector3(0, 100, -600) }
+  stepRival(rival, distant, 1 / 60, 0, { cruise: 20, diveSpeed: 30 })
+  assert.ok(Math.abs(rival.vel.length() - 20) < 0.5, `flew at ${rival.vel.length().toFixed(1)}`)
 })

@@ -4,6 +4,7 @@
  * snapshot in, so a 60fps simulation does not cause 60 React renders a second.
  */
 import { create } from 'zustand'
+import { loadProgress, saveProgress } from './progress.ts'
 
 export type Telemetry = {
   airspeed: number
@@ -49,6 +50,8 @@ type GameState = Telemetry & {
   /** Frozen by a click: nothing simulates or renders until the next one. */
   paused: boolean
   togglePause: () => void
+  /** Forget everything banked, and put the valley back to sleep. */
+  startOver: () => void
   setTelemetry: (t: Partial<Telemetry>) => void
   reset: () => void
 }
@@ -76,14 +79,21 @@ export const useGame = create<GameState>((set) => ({
   pecked: 0,
   crowsSwatted: 0,
   struck: 0,
-  banked: 0,
-  bankedCount: 0,
+  // Remembered between visits: what is in the nest is the player's progress.
+  ...loadProgress(),
   carried: 0,
   runStartedAt: Date.now(),
   paused: false,
   togglePause: () => set((s) => ({ paused: !s.paused })),
+  startOver: () => set({ banked: 0, bankedCount: 0, rivalsBeaten: 0 }),
   setTelemetry: (t) => set(t),
   // Banked food survives a death - it is in the nest, not in the bird.
   reset: () =>
     set({ ...initialTelemetry, carried: 0, threat: 'none', runStartedAt: Date.now() }),
 }))
+
+useGame.subscribe((state, previous) => {
+  if (state.banked !== previous.banked || state.bankedCount !== previous.bankedCount) {
+    saveProgress({ banked: state.banked, bankedCount: state.bankedCount })
+  }
+})

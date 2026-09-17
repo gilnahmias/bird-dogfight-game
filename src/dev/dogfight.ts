@@ -10,9 +10,12 @@
  */
 import { Vector3 } from 'three'
 import { createBird, FWD, RIGHT, step, UP, type BirdState, type Input } from '../flight/physics.ts'
+import { STAGES } from '../game/progress.ts'
 import {
   closingSpeed,
+  playerStrikes,
   RIVAL,
+  type Pace,
   resolveStrike,
   stepRival,
   type Quarry,
@@ -67,7 +70,7 @@ const NEUTRAL: Input = { roll: 0, pitch: 0, brake: false }
 const CALM = { wind: new Vector3(0, 0, 0) }
 
 /** Fly one encounter and report how it ended. */
-function encounter(tactic: Tactic, seconds = 45) {
+function encounter(tactic: Tactic, pace: Pace, seconds = 45) {
   const bird = createBird(new Vector3(0, 400, 0))
   const rival = rivalNear(bird.pos, new Vector3(0, 0, -1))
 
@@ -103,7 +106,7 @@ function encounter(tactic: Tactic, seconds = 45) {
     step(bird, input, CALM, dt)
 
     const heading = FWD.clone().applyQuaternion(bird.quat)
-    stepRival(rival, { pos: bird.pos, vel: bird.vel, perched: false, dead: false } satisfies Quarry, dt, i * dt)
+    stepRival(rival, { pos: bird.pos, vel: bird.vel, perched: false, dead: false } satisfies Quarry, dt, i * dt, pace)
     if (rival.dead) continue
 
     const apart = bird.pos.distanceTo(rival.pos)
@@ -129,16 +132,18 @@ function encounter(tactic: Tactic, seconds = 45) {
     }
 
     mercy = Math.max(0, mercy - dt)
-    const strike = resolveStrike(
-      { pos: rival.pos, vel: rival.vel, forward: rival.vel.clone().normalize() },
-      { pos: bird.pos, vel: bird.vel, forward: heading },
-    )
+    const attacker = { pos: rival.pos, vel: rival.vel, forward: rival.vel.clone().normalize() }
+    const player = { pos: bird.pos, vel: bird.vel, forward: heading }
+    let strike = resolveStrike(attacker, player)
+    // A hunting player puts the talons out for the pass, as the game's does.
+    if (strike === 'none' && tactic === 'hunt it' && playerStrikes(attacker, player)) strike = 'target'
     if (strike === 'attacker' && mercy <= 0) {
       struck++
-      mercy = 4
+      // The same grace and break-off as Rivals.tsx.
+      mercy = 10
       bird.vel.multiplyScalar(0.55)
       rival.mode = 'overshoot'
-      rival.timer = RIVAL.recover
+      rival.timer = 15
     }
     if (strike === 'target') {
       beaten++
@@ -148,18 +153,25 @@ function encounter(tactic: Tactic, seconds = 45) {
   return { closest, struck, beaten, nearest }
 }
 
-console.log('tactic            closest   hits on you   rivals beaten')
-for (const tactic of ['straight', 'run', 'hunt it'] as const) {
-  const r = encounter(tactic, tactic === 'straight' ? 90 : 45)
-  console.log(
-    `${tactic.padEnd(16)}  ${r.closest.toFixed(0).padStart(5)}m   ${String(r.struck).padStart(6)}        ${String(r.beaten).padStart(6)}`,
-  )
-  if (process.env.DOGFIGHT_DEBUG) {
+const paces: [string, Pace][] = [
+  ['first rival', STAGES.find((s) => s.rivals > 0)!.pace],
+  ['full', RIVAL],
+]
+for (const [name, pace] of paces) {
+  console.log(`\n${name} (cruise ${pace.cruise}, dive ${pace.diveSpeed})`)
+  console.log('tactic            closest   hits on you   rivals beaten')
+  for (const tactic of ['straight', 'run', 'hunt it'] as const) {
+    const r = encounter(tactic, pace, tactic === 'straight' ? 90 : 45)
     console.log(
-      '   at the closest point:',
-      Object.entries(r.nearest)
-        .map(([k, v]) => `${k}=${typeof v === 'number' ? v.toFixed(1) : v}`)
-        .join('  '),
+      `${tactic.padEnd(16)}  ${r.closest.toFixed(0).padStart(5)}m   ${String(r.struck).padStart(6)}        ${String(r.beaten).padStart(6)}`,
     )
+    if (process.env.DOGFIGHT_DEBUG) {
+      console.log(
+        '   at the closest point:',
+        Object.entries(r.nearest)
+          .map(([k, v]) => `${k}=${typeof v === 'number' ? v.toFixed(1) : v}`)
+          .join('  '),
+      )
+    }
   }
 }

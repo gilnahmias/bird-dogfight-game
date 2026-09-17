@@ -28,6 +28,7 @@ let windFilter: BiquadFilterNode
 let whiteNoise: AudioBuffer
 let brownNoise: AudioBuffer
 let muted = readMuted()
+let paused = false
 const listeners = new Set<(muted: boolean) => void>()
 /** Dev only: every call made, for checking from the console. */
 const heardCalls: string[] = []
@@ -60,10 +61,16 @@ export function toggleMute(): void {
   for (const listener of listeners) listener(muted)
 }
 
+/** A paused game is a silent one: the music and the waterfalls wait too. */
+export function setPaused(value: boolean): void {
+  paused = value
+  syncRunning()
+}
+
 /** Suspended rather than turned down, so a muted or hidden game costs no CPU. */
 function syncRunning() {
   if (!ctx) return
-  if (muted || document.hidden) void ctx.suspend()
+  if (muted || paused || document.hidden) void ctx.suspend()
   else void ctx.resume()
 }
 

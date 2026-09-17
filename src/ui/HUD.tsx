@@ -34,6 +34,7 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
     threatCarrying,
     rivalsBeaten,
     mobbed,
+    paused,
   } = useGame()
   const muted = useSyncExternalStore(onMuteChange, isMuted)
 
@@ -112,12 +113,20 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
         </div>
       )}
 
+      {paused && (
+        <div className="paused">
+          <div className="paused-title">PAUSED</div>
+          <div className="paused-hint">click to keep flying</div>
+        </div>
+      )}
+
       <div className="controls">
         <span><b>&larr; &rarr;</b> bank</span>
         <span><b>&darr;</b> nose up</span>
         <span><b>&uarr;</b> nose down</span>
         <span><b>space</b> brake &amp; talons</span>
         <span><b>x</b> drop</span>
+        <span><b>click</b> pause</span>
         <span><b>m</b> {muted ? 'unmute' : 'mute'}</span>
         <span>catch prey low, bank it at the nest</span>
         <span>beat a rival by diving on it from above, talons out</span>

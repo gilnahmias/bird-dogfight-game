@@ -27,11 +27,22 @@ import { Waterfalls } from './world/Waterfalls.tsx'
 import { Soundscape } from './audio/Soundscape.tsx'
 import { Splashes } from './world/Splashes.tsx'
 import { T, WORLD } from './game/constants.ts'
+import { useGame } from './game/store.ts'
+import { PauseClock } from './game/PauseClock.tsx'
 
 const SEED = 'pine-ridge'
 
 export default function App() {
   useEffect(attachInput, [])
+  const paused = useGame((s) => s.paused)
+  useEffect(() => {
+    // Left click only, so a right click for the browser menu does not pause.
+    const click = (e: PointerEvent) => {
+      if (e.button === 0) useGame.getState().togglePause()
+    }
+    window.addEventListener('pointerdown', click)
+    return () => window.removeEventListener('pointerdown', click)
+  }, [])
 
   // Every run starts at the nest, launching down its open departure line.
   const site = useMemo(() => findNestSite(SEED), [])
@@ -52,6 +63,8 @@ export default function App() {
         camera={{ fov: T.camFovBase, near: 0.5, far: WORLD.fogFar + 400 }}
         shadows={false}
         dpr={[1, 1.75]}
+        // Paused means no frames at all: nothing moves and the GPU rests.
+        frameloop={paused ? 'never' : 'always'}
         /*
           Filmic tone mapping keeps the bright end - sun glare on water, sunlit
           rock against dark forest - from flattening into white.
@@ -91,6 +104,7 @@ export default function App() {
         <Shadow state={bird} seed={SEED} />
         <Bird state={bird} seed={SEED} spawn={spawn} heading={site.heading} nest={nest} />
         <ChaseCamera state={bird} seed={SEED} />
+        <PauseClock />
         <Soundscape bird={bird} />
         <DevBridge bird={bird} />
       </Canvas>

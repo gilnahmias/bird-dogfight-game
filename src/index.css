@@ -258,6 +258,27 @@ canvas {
   font-size: 14px;
 }
 
+.paused {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  background: rgba(10, 12, 16, 0.45);
+}
+
+.paused-title {
+  font-size: 46px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.paused-hint {
+  margin-top: 10px;
+  opacity: 0.75;
+  font-size: 14px;
+}
+
 .controls {
   position: absolute;
   top: 18px;

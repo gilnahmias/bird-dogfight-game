@@ -18,6 +18,7 @@ export function DevBridge({ bird }: { bird: BirdState }) {
   const scene = useThree((s) => s.scene)
   const camera = useThree((s) => s.camera)
   const advance = useThree((s) => s.advance)
+  const r3f = useThree((s) => s.get)
 
   useEffect(() => {
     if (!import.meta.env.DEV) return
@@ -29,6 +30,8 @@ export function DevBridge({ bird }: { bird: BirdState }) {
         scene,
         camera,
         store: useGame,
+        /** The canvas's own state: clock, frameloop. */
+        r3f,
         /** Force one frame, for when the tab is not visible. */
         frame: (t = performance.now()) => advance(t),
         stats: () => ({
@@ -39,7 +42,7 @@ export function DevBridge({ bird }: { bird: BirdState }) {
         }),
       },
     })
-  }, [bird, gl, scene, camera, advance])
+  }, [bird, gl, scene, camera, advance, r3f])
 
   return null
 }

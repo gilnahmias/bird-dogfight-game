@@ -20,6 +20,7 @@ import {
   caw,
   placeListener,
   screech,
+  setPaused,
   setWind,
   startFall,
   type FallVoice,
@@ -41,6 +42,13 @@ export function Soundscape({ bird }: { bird: BirdState }) {
   const counts = useRef({ pecked: 0, swatted: 0 })
 
   useEffect(attachAudio, [])
+  useEffect(
+    () =>
+      useGame.subscribe((s, previous) => {
+        if (s.paused !== previous.paused) setPaused(s.paused)
+      }),
+    [],
+  )
 
   useFrame((state) => {
     if (!audio()) return

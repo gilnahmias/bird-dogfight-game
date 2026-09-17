@@ -46,6 +46,9 @@ type GameState = Telemetry & {
   /** How many are in the talons right now. */
   carried: number
   runStartedAt: number
+  /** Frozen by a click: nothing simulates or renders until the next one. */
+  paused: boolean
+  togglePause: () => void
   setTelemetry: (t: Partial<Telemetry>) => void
   reset: () => void
 }
@@ -77,6 +80,8 @@ export const useGame = create<GameState>((set) => ({
   bankedCount: 0,
   carried: 0,
   runStartedAt: Date.now(),
+  paused: false,
+  togglePause: () => set((s) => ({ paused: !s.paused })),
   setTelemetry: (t) => set(t),
   // Banked food survives a death - it is in the nest, not in the bird.
   reset: () =>

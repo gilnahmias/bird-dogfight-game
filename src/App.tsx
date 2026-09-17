@@ -22,6 +22,7 @@ import { Tarns } from './world/Tarns.tsx'
 import { PreyField } from './world/Prey.tsx'
 import { Rivals } from './entities/Rivals.tsx'
 import { RivalNests } from './entities/RivalNests.tsx'
+import { Flocks } from './entities/Flocks.tsx'
 import { Waterfalls } from './world/Waterfalls.tsx'
 import { Splashes } from './world/Splashes.tsx'
 import { T, WORLD } from './game/constants.ts'
@@ -84,6 +85,7 @@ export default function App() {
 
         <Splashes />
         <Rivals bird={bird} seed={SEED} home={nest} />
+        <Flocks bird={bird} seed={SEED} />
         <PreyField bird={bird} seed={SEED} nest={nest} />
         <Shadow state={bird} seed={SEED} />
         <Bird state={bird} seed={SEED} spawn={spawn} heading={site.heading} nest={nest} />

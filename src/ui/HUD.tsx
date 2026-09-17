@@ -32,6 +32,7 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
     threatAbove,
     threatCarrying,
     rivalsBeaten,
+    mobbed,
   } = useGame()
 
   return (
@@ -84,6 +85,14 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
           above={threatAbove}
           carrying={threatCarrying}
         />
+      )}
+
+      {mobbed > 0 && !dead && (
+        // Below the rival warning, so the two can show at once without touching.
+        <div className="mobbed">
+          <div className="mobbed-text">crows!</div>
+          <div className="mobbed-hint">dive away, or swat one with your talons</div>
+        </div>
       )}
 
       {carried > 0 && !dead && <Pointer target={nest} label="nest" bird={bird} tone="home" />}

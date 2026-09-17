@@ -32,6 +32,11 @@ type GameState = Telemetry & {
   threatCarrying: boolean
   /** How many rivals have been knocked out of the sky. */
   rivalsBeaten: number
+  /** How many crows are mobbing the bird right now. */
+  mobbed: number
+  /** Pecks taken, and crows knocked out of the air. */
+  pecked: number
+  crowsSwatted: number
   /** How many times the player has been hit. */
   struck: number
   /** Food value banked at the nest. */
@@ -64,6 +69,9 @@ export const useGame = create<GameState>((set) => ({
   threatAbove: 0,
   threatCarrying: false,
   rivalsBeaten: 0,
+  mobbed: 0,
+  pecked: 0,
+  crowsSwatted: 0,
   struck: 0,
   banked: 0,
   bankedCount: 0,

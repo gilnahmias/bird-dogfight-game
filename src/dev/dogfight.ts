@@ -34,6 +34,9 @@ function rivalNear(player: Vector3, heading: Vector3, range = 420): Rival {
     spin: 1,
     dead: false,
     dying: 0,
+    kind: 1,
+    carrying: null,
+    nest: null,
   }
 }
 

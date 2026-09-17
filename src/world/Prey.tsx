@@ -18,6 +18,8 @@ import {
   type Prey,
   GAIT,
   hopLift,
+  makeFood,
+  PREY,
   spawnPreyAround,
   stepPrey,
   stockedFish,
@@ -29,6 +31,8 @@ import { useGame } from '../game/store.ts'
 import { meshHeightAt } from './terrain.ts'
 import { WORLD } from '../game/constants.ts'
 import { input } from '../flight/input.ts'
+import { markRaided, nestFood, rivalNestsNear } from '../entities/rivalNests.ts'
+import { collectGifts } from './talonGifts.ts'
 import { T } from '../game/constants.ts'
 
 /**
@@ -41,6 +45,11 @@ const POOL = 64
 /** They are kept inside this radius, and topped up beyond this one. */
 const RANGE = 620
 const REFRESH_AT = 380
+
+/** How far out rival nests have their food put in. */
+const NEST_STOCK_RANGE = 700
+/** Seconds between checks for a raided nest refilling. */
+const RESTOCK_CHECK = 4
 
 const fwd = new Vector3()
 const down = new Vector3()
@@ -71,6 +80,7 @@ export function PreyField({
   const seeded = useRef(false)
   const wasDropping = useRef(false)
   const lastHit = useRef(0)
+  const lastRestock = useRef(0)
   const lastTopUp = useRef(new Vector3(Infinity, 0, Infinity))
   const groups = useRef<Map<number, Group>>(new Map())
   const [rendered, setRendered] = useState<Prey[]>([])
@@ -95,14 +105,44 @@ export function PreyField({
     [bird, seed],
   )
 
+  /*
+    And every rival nest in range holds its food.
+
+    Same stable-id trick as the lakes. Raided slots stay empty until they
+    restock, and that is remembered by the nests module, not here - the field
+    forgets animals as the bird flies away, but a raid has to survive that.
+  */
+  const stockNests = useCallback(
+    (current: Prey[], now: number) => {
+      const known = new Set([...current, ...carried.current].map((p) => p.id))
+      const food = rivalNestsNear(bird.pos.x, bird.pos.z, NEST_STOCK_RANGE, seed, nest).flatMap((n) =>
+        nestFood(n, now),
+      )
+      const missing = food.filter((f) => !known.has(f.id))
+      return missing.length ? current.concat(missing) : current
+    },
+    [bird, seed, nest],
+  )
+
   useFrame((_, frameDelta) => {
     const state = useGame.getState()
+    const now = performance.now() / 1000
 
     if (!seeded.current) {
       seeded.current = true
-      alive.current = stockLakes(spawnPreyAround(bird.pos, seed, POOL, RANGE))
+      alive.current = stockNests(stockLakes(spawnPreyAround(bird.pos, seed, POOL, RANGE)), now)
       lastTopUp.current.copy(bird.pos)
+      lastRestock.current = now
       sync()
+    }
+
+    // A raided nest refills while the bird hangs about waiting for it, not only
+    // when it flies off far enough to top the whole field up.
+    if (now - lastRestock.current > RESTOCK_CHECK) {
+      lastRestock.current = now
+      const before = alive.current.length
+      alive.current = stockNests(alive.current, now)
+      if (alive.current.length !== before) sync()
     }
 
     // --- Top up the field as the bird travels ------------------------------
@@ -116,7 +156,7 @@ export function PreyField({
           spawnPreyAround(bird.pos, seed, missing, RANGE, REFRESH_AT * 0.6),
         )
       }
-      alive.current = stockLakes(alive.current)
+      alive.current = stockNests(stockLakes(alive.current), now)
       sync()
     }
 
@@ -136,6 +176,8 @@ export function PreyField({
       for (const prey of alive.current) {
         if (!canCatch(attempt, prey)) continue
         prey.caught = true
+        // Taken from a rival's nest: that slot is empty until it restocks.
+        if (prey.nest !== undefined) markRaided(prey.id, now)
         carried.current.push(prey)
         alive.current = alive.current.filter((p) => p !== prey)
         attempt.load = loadOf(carried.current)
@@ -143,6 +185,28 @@ export function PreyField({
           sync()
         break // one animal per pass; the talons close on what they close on
       }
+    }
+
+    // --- Handed over -------------------------------------------------------
+    /*
+      Food won off a rival. Into the talons if there is room for it; otherwise
+      it falls to the ground below and waits there, so beating a rival while
+      already fully loaded still leaves the prize on the map.
+    */
+    const gifts = collectGifts()
+    if (gifts.length) {
+      for (const gift of gifts) {
+        const food = makeFood(gift.kind, gift.at)
+        if (!bird.dead && loadOf(carried.current) + PREY[gift.kind].weight <= T.maxLoad) {
+          food.caught = true
+          carried.current.push(food)
+          bird.load = loadOf(carried.current)
+        } else {
+          food.pos.y = surfaceFor(gift.kind, food.pos.x, food.pos.z, seed)
+          alive.current = alive.current.concat(food)
+        }
+      }
+      sync()
     }
 
     // --- Letting go --------------------------------------------------------
@@ -219,7 +283,11 @@ export function PreyField({
       stepPrey(prey, dt, time, seed)
       const group = groups.current.get(prey.id)
       if (!group) continue
-      if (prey.kind === 'fish') {
+      if (prey.still) {
+        // Food, not an animal: lying where it was left, on its side.
+        group.position.copy(prey.pos)
+        group.rotation.set(0, prey.heading, prey.kind === 'fish' ? 0 : 1.45)
+      } else if (prey.kind === 'fish') {
         // Fish hold station at the surface and flick.
         group.position.set(prey.pos.x, prey.pos.y + Math.sin(time * 2 + prey.phase) * 0.12, prey.pos.z)
         group.rotation.y = prey.heading + Math.sin(time * 1.6 + prey.phase) * 0.5
@@ -358,7 +426,7 @@ function Snake() {
   )
 }
 
-function Animal({ kind }: { kind: Prey['kind'] }) {
+export function Animal({ kind }: { kind: Prey['kind'] }) {
   if (kind === 'snake') return <Snake />
 
   if (kind === 'fish') {

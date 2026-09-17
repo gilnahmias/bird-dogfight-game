@@ -269,3 +269,12 @@ test('an animal in the talons does not wander off', () => {
   for (let i = 0; i < 120; i++) stepPrey(snake, 1 / 60, i / 60, SEED)
   assert.ok(snake.pos.equals(at), 'a caught snake kept slithering')
 })
+
+test('food in a rival nest can be taken from anywhere over the bowl', () => {
+  const talonPoint = new Vector3(0, 100, 0)
+  const attempt = { talonPoint, talons: 1, load: 0, maxLoad: T.maxLoad }
+  const inTheField: Prey = { id: 1, kind: 'rabbit', pos: new Vector3(7, 100, 0), heading: 0, phase: 0, caught: false }
+  const inANest: Prey = { ...inTheField, id: 2, pos: new Vector3(7, 100, 0), still: true, nest: 5 }
+  assert.ok(!canCatch(attempt, inTheField), 'seven metres off is out of reach for a rabbit in a field')
+  assert.ok(canCatch(attempt, inANest), 'seven metres off is still over the bowl of a nest')
+})

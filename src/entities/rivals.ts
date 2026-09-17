@@ -14,6 +14,7 @@
  * tune into a fair fight than one fighting its own stall margin.
  */
 import { Vector3 } from 'three'
+import type { PreyKind } from '../world/prey.ts'
 
 /**
  * What a rival is doing. The climb is what makes them readable: a rival that
@@ -36,6 +37,15 @@ export type Rival = {
   dead: boolean
   /** Seconds since it was killed, for the fall. */
   dying: number
+  /** Which bird it is: an index into RIVAL_KINDS. */
+  kind: number
+  /**
+   * Food in its talons, if any. Beat a rival that is carrying and the food is
+   * yours - which is the reason to go looking for a fight at all.
+   */
+  carrying: PreyKind | null
+  /** The nest it belongs to, if it came from one. */
+  nest: number | null
 }
 
 export const RIVAL = {

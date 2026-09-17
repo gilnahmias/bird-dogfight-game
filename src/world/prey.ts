@@ -66,6 +66,13 @@ export type Prey = {
   /** Its own clock, so a field of them does not move in lockstep. */
   phase: number
   caught: boolean
+  /**
+   * Food rather than a live animal: something already killed and left in a
+   * rival's nest, or dropped in a fight. It does not move and does not hop.
+   */
+  still?: boolean
+  /** The rival nest it was taken from, if any - so the nest knows it is gone. */
+  nest?: number
 }
 
 /** Highest ground a land animal lives on: above it is bare rock and snow. */
@@ -261,8 +268,20 @@ export function canCatch(attempt: CatchAttempt, prey: Prey): boolean {
   if (attempt.talons < 0.55) return false
   const spec = PREY[prey.kind]
   if (attempt.load + spec.weight > attempt.maxLoad) return false
-  return attempt.talonPoint.distanceTo(prey.pos) <= spec.grabRadius
+  const reach = spec.grabRadius + (prey.nest !== undefined ? NEST_GRAB_BONUS : 0)
+  return attempt.talonPoint.distanceTo(prey.pos) <= reach
 }
+
+/**
+ * Extra reach for food sitting in a rival's nest.
+ *
+ * The bowl is five metres across in the crown of a tree, and a bird braking to
+ * take something sinks as it slows: measured on a raid pass, the bird sank below
+ * the bowl eight metres short of the food. Anything in the bowl counts as in
+ * the bowl - the skill is in finding the nest and getting to it, not in
+ * threading a rabbit-sized gap at the top of a tree.
+ */
+export const NEST_GRAB_BONUS = 3.5
 
 /** Total talon weight of a set of animals. */
 export function loadOf(carried: Prey[]): number {
@@ -345,7 +364,7 @@ const ahead = new Vector3()
  * than a straight line.
  */
 export function stepPrey(prey: Prey, dt: number, time: number, seed: string): Prey {
-  if (prey.caught) return prey
+  if (prey.caught || prey.still) return prey
 
   let speed = 0
   if (prey.kind === 'snake') {
@@ -382,4 +401,21 @@ export function stepPrey(prey: Prey, dt: number, time: number, seed: string): Pr
   prey.pos.z = ahead.z
   prey.pos.y = meshHeightAt(ahead.x, ahead.z, seed, WORLD.lodSegments[0])
   return prey
+}
+
+/**
+ * A piece of food that did not come from the scatter: dropped by a rival, taken
+ * from a nest. Counted ids, like the scatter's, so it never collides with a
+ * stocked animal's derived one.
+ */
+export function makeFood(kind: PreyKind, at: Vector3): Prey {
+  return {
+    id: nextId++,
+    kind,
+    pos: at.clone(),
+    heading: jitter(at.x, at.z, 51) * Math.PI * 2,
+    phase: jitter(at.x, at.z, 52) * Math.PI * 2,
+    caught: false,
+    still: true,
+  }
 }

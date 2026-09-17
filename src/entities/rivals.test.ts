@@ -79,6 +79,9 @@ const rivalAt = (y: number, mode: Rival['mode'] = 'patrol', timer = 0): Rival =>
   spin: 1,
   dead: false,
   dying: 0,
+  kind: 0,
+  carrying: null,
+  nest: null,
 })
 
 const flying: Quarry = {

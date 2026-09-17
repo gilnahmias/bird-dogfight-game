@@ -167,6 +167,19 @@ canvas {
   opacity: 0.7;
 }
 
+/* The rival nest compass mirrors the lake one, out to the right, in the warning colour. */
+.nest-pointer.rival {
+  top: 15%;
+  left: 76%;
+  color: #f0b38a;
+  opacity: 0.7;
+}
+
+.nest-pointer.rival.on-course {
+  color: #ffc9a3;
+  opacity: 0.95;
+}
+
 .nest-pointer.water.on-course {
   color: #bfeaf7;
   opacity: 0.95;

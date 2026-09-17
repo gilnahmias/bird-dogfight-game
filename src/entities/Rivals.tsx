@@ -17,7 +17,11 @@ import { applyWingPose, wingPose } from '../flight/wingPose.ts'
 import { heightAt } from '../world/terrain.ts'
 import { useGame } from '../game/store.ts'
 import { Shadow, type ShadowCaster } from '../world/Shadow.tsx'
-import { kindOf, type RivalKind } from './rivalKinds.ts'
+import { RIVAL_KINDS, type RivalKind } from './rivalKinds.ts'
+import { rivalNestsNear, type RivalNest } from './rivalNests.ts'
+import { Animal } from '../world/Prey.tsx'
+import type { PreyKind } from '../world/prey.ts'
+import { giveToTalons } from '../world/talonGifts.ts'
 import { RIVAL, resolveStrike, stepRival, type Rival } from './rivals.ts'
 
 /** How many rivals are in the air at once. */
@@ -38,37 +42,69 @@ const fwd = new Vector3()
 const rivalFwd = new Vector3()
 const spin = new Quaternion()
 
-function spawnRival(near: Vector3, heading: Vector3, seed: string): Rival {
-  // Ahead of the bird rather than anywhere around it: a rival that appears
-  // behind a bird travelling at twenty-five metres a second is a rival the
-  // player never meets.
-  const facing = Math.atan2(heading.x, heading.z)
-  const angle = facing + (Math.random() - 0.5) * 1.6
-  const range = SPAWN_RANGE * (0.7 + Math.random() * 0.5)
-  const x = near.x + Math.cos(angle) * range
-  const z = near.z + Math.sin(angle) * range
-  // Comes in at the player's own height, not above it: a rival that appears
-  // already holding the advantage has skipped the part the player can read.
-  const y = Math.max(near.y, heightAt(x, z, seed) + 60)
-  // Facing back toward the bird it has come to look at.
-  const inbound = angle + Math.PI
+/** What a rival may be carrying when it turns up. */
+const PLUNDER: PreyKind[] = ['rabbit', 'fish', 'snake', 'mouse']
+/** How often a rival arrives with food in its talons. */
+const CARRY_CHANCE = 0.45
+
+/**
+ * Close enough to a rival's nest that it comes out to deal with you.
+ *
+ * Ignores the first-bank grace and the respawn delay: the player has flown into
+ * somebody's territory, and that is a choice, so the consequence comes at once.
+ */
+const TERRITORY = 480
+/** Seconds between looks for nests the bird has wandered near. */
+const TERRITORY_CHECK = 0.5
+
+function spawnRival(near: Vector3, heading: Vector3, seed: string, from: RivalNest | null): Rival {
+  let x: number
+  let z: number
+  let y: number
+  let inbound: number
+  if (from) {
+    // Off its own nest, and up: a defender comes out of the tree at you.
+    x = from.bowl.x
+    z = from.bowl.z
+    y = from.bowl.y + 20
+    inbound = Math.atan2(near.z - z, near.x - x)
+  } else {
+    // Ahead of the bird rather than anywhere around it: a rival that appears
+    // behind a bird travelling at twenty-five metres a second is a rival the
+    // player never meets.
+    const facing = Math.atan2(heading.x, heading.z)
+    const angle = facing + (Math.random() - 0.5) * 1.6
+    const range = SPAWN_RANGE * (0.7 + Math.random() * 0.5)
+    x = near.x + Math.cos(angle) * range
+    z = near.z + Math.sin(angle) * range
+    // Comes in at the player's own height, not above it: a rival that appears
+    // already holding the advantage has skipped the part the player can read.
+    y = Math.max(near.y, heightAt(x, z, seed) + 60)
+    // Facing back toward the bird it has come to look at.
+    inbound = angle + Math.PI
+  }
+  const id = nextId++
   return {
-    id: nextId++,
+    id,
     pos: new Vector3(x, y, z),
     vel: new Vector3(Math.cos(inbound), 0, Math.sin(inbound)).multiplyScalar(RIVAL.cruise),
     mode: 'patrol',
     timer: 0,
-    home: new Vector3(x, y, z),
+    home: from ? from.bowl.clone().setY(from.bowl.y + 40) : new Vector3(x, y, z),
     spin: Math.random() < 0.5 ? -1 : 1,
     dead: false,
     dying: 0,
+    kind: from ? from.kind : id % RIVAL_KINDS.length,
+    // A defender is at home, so it is not carrying; a wanderer may be.
+    carrying: !from && Math.random() < CARRY_CHANCE ? PLUNDER[Math.floor(Math.random() * PLUNDER.length)] : null,
+    nest: from ? from.id : null,
   }
 }
 
 /* oxlint-disable react/immutability -- `bird` is the simulation state object,
    shared and mutated in place by the frame loop by design. A strike changes the
    bird's velocity because that is what being hit does. */
-export function Rivals({ bird, seed }: { bird: BirdState; seed: string }) {
+export function Rivals({ bird, seed, home }: { bird: BirdState; seed: string; home: Vector3 }) {
   const rivals = useRef<Rival[]>([])
   const groups = useRef<Map<number, Group>>(new Map())
   /*
@@ -82,6 +118,7 @@ export function Rivals({ bird, seed }: { bird: BirdState; seed: string }) {
   const joints = useRef<Map<number, { left: WingJoints; right: WingJoints }>>(new Map())
   const cooldown = useRef(RESPAWN_DELAY * 0.4)
   const mercy = useRef(0)
+  const territoryClock = useRef(0)
   const [rendered, setRendered] = useState<Rival[]>([])
   const sync = useCallback(() => setRendered([...rivals.current]), [])
 
@@ -108,6 +145,17 @@ export function Rivals({ bird, seed }: { bird: BirdState; seed: string }) {
       teaches nothing. Once there is food in the nest there is something worth
       taking, and the valley notices.
     */
+    territoryClock.current -= dt
+    if (territoryClock.current <= 0 && !bird.perched && !bird.dead) {
+      territoryClock.current = TERRITORY_CHECK
+      for (const owned of rivalNestsNear(bird.pos.x, bird.pos.z, TERRITORY, seed, home)) {
+        const defended = rivals.current.some((r) => r.nest === owned.id && !r.dead)
+        if (!defended && rivals.current.length < MAX_RIVALS + 1) {
+          rivals.current.push(spawnRival(bird.pos, fwd, seed, owned))
+        }
+      }
+    }
+
     const contested = useGame.getState().bankedCount > 0
     if (
       contested &&
@@ -116,7 +164,7 @@ export function Rivals({ bird, seed }: { bird: BirdState; seed: string }) {
       !bird.perched &&
       !bird.dead
     ) {
-      rivals.current.push(spawnRival(bird.pos, fwd.copy(FWD).applyQuaternion(bird.quat), seed))
+      rivals.current.push(spawnRival(bird.pos, fwd.copy(FWD).applyQuaternion(bird.quat), seed, null))
       cooldown.current = RESPAWN_DELAY
     }
     if (rivals.current.length !== before) sync()
@@ -129,6 +177,7 @@ export function Rivals({ bird, seed }: { bird: BirdState; seed: string }) {
     let threat: 'none' | 'watching' | 'diving' = 'none'
     let bearing = 0
     let above = 0
+    let carrying = false
 
     for (const rival of rivals.current) {
       stepRival(rival, quarry, dt, time)
@@ -168,6 +217,11 @@ export function Rivals({ bird, seed }: { bird: BirdState; seed: string }) {
         useGame.setState({ struck: useGame.getState().struck + 1 })
       } else if (strike === 'target') {
         // The player got it: exactly the same rule, read the other way round.
+        // And if it was carrying, what it carried is the player's now.
+        if (rival.carrying) {
+          giveToTalons(rival.carrying, rival.pos)
+          rival.carrying = null
+        }
         rival.dead = true
         rival.dying = 0
         rival.vel.multiplyScalar(0.3)
@@ -187,12 +241,15 @@ export function Rivals({ bird, seed }: { bird: BirdState; seed: string }) {
           while (delta2 < -Math.PI) delta2 += Math.PI * 2
           bearing = delta2
           above = rival.pos.y - bird.pos.y
+          carrying = rival.carrying !== null
         }
       }
     }
 
     if (useGame.getState().threat !== threat) useGame.setState({ threat })
-    if (threat !== 'none') useGame.setState({ threatBearing: bearing, threatAbove: above })
+    if (threat !== 'none') {
+      useGame.setState({ threatBearing: bearing, threatAbove: above, threatCarrying: carrying })
+    }
 
     /*
       Hand the live list to the dev bridge.
@@ -253,7 +310,8 @@ export function Rivals({ bird, seed }: { bird: BirdState; seed: string }) {
       {rendered.map((rival) => (
         <RivalBird
           key={rival.id}
-          kind={kindOf(rival.id)}
+          kind={RIVAL_KINDS[rival.kind]}
+          carrying={rival.carrying}
           onGroup={(node) => {
             if (node) groups.current.set(rival.id, node)
             else groups.current.delete(rival.id)
@@ -277,12 +335,14 @@ export function Rivals({ bird, seed }: { bird: BirdState; seed: string }) {
    because the frame loop poses them sixty times a second. */
 function RivalBird({
   kind,
+  carrying,
   onGroup,
   onJoints,
   onShadow,
   seed,
 }: {
   kind: RivalKind
+  carrying: PreyKind | null
   onGroup: (node: Group | null) => void
   onJoints: (set: { left: WingJoints; right: WingJoints }) => void
   onShadow: (caster: ShadowCaster | null) => void
@@ -307,6 +367,12 @@ function RivalBird({
         scale={kind.scale}
       >
         <BirdModel left={left} right={right} feet={feet} palette={kind.palette} />
+        {carrying && (
+          // Food in its talons: slung under the body, the way the player carries.
+          <group position={[0, -0.95, 0.25]} rotation={[Math.PI / 2, 0, 0]}>
+            <Animal kind={carrying} />
+          </group>
+        )}
       </group>
       {/* Its shadow, so you can tell where it is even when it is off screen. */}
       <Shadow state={caster} seed={seed} />

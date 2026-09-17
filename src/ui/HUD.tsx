@@ -13,6 +13,7 @@ import { FWD } from '../flight/physics.ts'
 import { useGame } from '../game/store.ts'
 import { T } from '../game/constants.ts'
 import { tarnSitesNear } from '../world/terrain.ts'
+import { rivalNestsNear } from '../entities/rivalNests.ts'
 
 export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed: string }) {
   const {
@@ -29,6 +30,7 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
     threat,
     threatBearing,
     threatAbove,
+    threatCarrying,
     rivalsBeaten,
   } = useGame()
 
@@ -76,11 +78,17 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
       {perched && !dead && <div className="perched">IN THE NEST &middot; press SPACE to launch</div>}
 
       {threat !== 'none' && !dead && (
-        <ThreatWarning threat={threat} bearing={threatBearing} above={threatAbove} />
+        <ThreatWarning
+          threat={threat}
+          bearing={threatBearing}
+          above={threatAbove}
+          carrying={threatCarrying}
+        />
       )}
 
       {carried > 0 && !dead && <Pointer target={nest} label="nest" bird={bird} tone="home" />}
       {carried === 0 && !dead && <LakePointer bird={bird} seed={seed} />}
+      {carried === 0 && !dead && <RivalNestPointer bird={bird} seed={seed} home={nest} />}
 
       {rivalsBeaten > 0 && (
         <div className="rivals-beaten">rivals beaten {rivalsBeaten}</div>
@@ -101,6 +109,7 @@ export function HUD({ nest, bird, seed }: { nest: Vector3; bird: BirdState; seed
         <span><b>x</b> drop</span>
         <span>catch prey low, bank it at the nest</span>
         <span>beat a rival by diving on it from above, talons out</span>
+        <span>raid rival nests, steal from rivals carrying food</span>
       </div>
     </div>
   )
@@ -121,7 +130,7 @@ function Pointer({
   target: Vector3
   label: string
   bird: BirdState
-  tone: 'home' | 'water'
+  tone: 'home' | 'water' | 'rival'
 }) {
   const [bearing, setBearing] = useState(0)
   const [distance, setDistance] = useState(0)
@@ -191,6 +200,32 @@ function LakePointer({ bird, seed }: { bird: BirdState; seed: string }) {
   return <Pointer target={lake} label="lake" bird={bird} tone="water" />
 }
 
+/**
+ * Where the nearest rival nest is - the other way to get food, and a fight.
+ *
+ * Out to the right, mirroring the lake compass on the left, so neither ever sits
+ * on top of the other or of the rival warning in the middle.
+ */
+function RivalNestPointer({ bird, seed, home }: { bird: BirdState; seed: string; home: Vector3 }) {
+  const [target, setTarget] = useState<Vector3 | null>(null)
+
+  useEffect(() => {
+    const find = () => {
+      const near = rivalNestsNear(bird.pos.x, bird.pos.z, RIVAL_NEST_SEARCH, seed, home)[0]
+      setTarget(near ? near.bowl.clone() : null)
+    }
+    find()
+    const timer = setInterval(find, 1000)
+    return () => clearInterval(timer)
+  }, [bird, seed, home])
+
+  if (!target) return null
+  return <Pointer target={target} label="rival nest" bird={bird} tone="rival" />
+}
+
+/** How far to look for a rival nest to point at. */
+const RIVAL_NEST_SEARCH = 2500
+
 /** How far to look for a lake to point at. Beyond this, it is not news. */
 const LAKE_SEARCH = 3000
 
@@ -206,10 +241,12 @@ function ThreatWarning({
   threat,
   bearing,
   above,
+  carrying,
 }: {
   threat: 'watching' | 'diving'
   bearing: number
   above: number
+  carrying: boolean
 }) {
   const diving = threat === 'diving'
   // Which way to LOOK. A compass bearing says where it is on the ground; half
@@ -223,7 +260,11 @@ function ThreatWarning({
       </div>
       <div className="threat-text">{diving ? 'RIVAL DIVING' : 'rival climbing'}</div>
       <div className="threat-height">{vertical}</div>
-      <div className="threat-hint">{diving ? 'turn away or climb' : 'get above it'}</div>
+      <div className="threat-hint">
+        {/* A rival with food is a prize as well as a threat: say so, because
+            it is the reason to turn and fight rather than run. */}
+        {carrying ? 'it has food - dive on it' : diving ? 'turn away or climb' : 'get above it'}
+      </div>
     </div>
   )
 }

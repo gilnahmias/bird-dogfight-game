@@ -79,7 +79,12 @@ function NestTree({ site }: { site: NestSite }) {
   )
 }
 
-export function Nest({ site }: { site: NestSite }) {
+/**
+ * `accent` marks a nest as someone else's: a few of the rim sticks and some
+ * feathers caught in them take the owner's colours, so a rival's eyrie reads as
+ * a rival's from the air rather than as a second copy of home.
+ */
+export function Nest({ site, accent }: { site: NestSite; accent?: string }) {
   // Sticks laid around the rim, at angles fixed by the site so the nest looks
   // the same every time you come home to it.
   const sticks = useMemo(
@@ -119,9 +124,25 @@ export function Nest({ site }: { site: NestSite }) {
           castShadow
         >
           <cylinderGeometry args={[0.12, 0.16, s.len, 4]} />
-          <meshStandardMaterial color={i % 3 ? TWIG : TWIG_DARK} roughness={1} flatShading />
+          <meshStandardMaterial
+            color={accent && i % 4 === 0 ? accent : i % 3 ? TWIG : TWIG_DARK}
+            roughness={1}
+            flatShading
+          />
         </mesh>
       ))}
+      {accent &&
+        // Feathers stuck upright in the rim: the owner's calling card.
+        [0, 2.1, 4.2].map((a) => (
+          <mesh
+            key={a}
+            position={[Math.cos(a) * 2.4, site.treeHeight + 1.3, Math.sin(a) * 2.4]}
+            rotation={[0.25, -a, 0.2]}
+          >
+            <coneGeometry args={[0.28, 1.9, 4]} />
+            <meshStandardMaterial color={accent} roughness={0.9} flatShading />
+          </mesh>
+        ))}
     </group>
   )
 }
